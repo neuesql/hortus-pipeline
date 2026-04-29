@@ -250,3 +250,4 @@ dp.pipeline_status()
 - [Python SDK Reference (pyspark.pipelines)](https://docs.databricks.com/aws/en/ldp/developer/python-ref) — Python decorator API reference
 - [Incremental Refresh for Materialized Views](https://docs.databricks.com/aws/en/optimizations/incremental-refresh) — Enzyme engine and refresh modes
 - [Triggered vs Continuous Pipeline Mode](https://docs.databricks.com/aws/en/ldp/pipeline-mode) — schedule/trigger modes
+- [Optimizing materialized view](https://www.databricks.com/blog/optimizing-materialized-views-recomputes) - materialized view

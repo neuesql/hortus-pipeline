@@ -1,0 +1,12 @@
+# name: test/sql/hortus_pipeline.test
+# description: test hortus_pipeline extension
+# group: [sql]
+
+# Require statement will ensure this test is run with this extension loaded
+require hortus_pipeline
+
+# Confirm the extension loads successfully
+query I
+SELECT 1;
+----
+1

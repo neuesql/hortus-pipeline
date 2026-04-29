@@ -10,3 +10,14 @@ query I
 SELECT 1;
 ----
 1
+
+# Test that our custom SQL statements are parsed and routed (placeholder responses)
+query I
+CREATE OR REFRESH MATERIALIZED VIEW test_view AS SELECT 1;
+----
+CREATE OR REFRESH MATERIALIZED VIEW test_view - not yet implemented
+
+query I
+REFRESH ALL MATERIALIZED VIEWS;
+----
+REFRESH ALL MATERIALIZED VIEWS - not yet implemented

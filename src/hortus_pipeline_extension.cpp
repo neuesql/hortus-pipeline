@@ -2,11 +2,15 @@
 
 #include "hortus_pipeline_extension.hpp"
 #include "duckdb.hpp"
+#include "duckdb/main/config.hpp"
+#include "parser/pipeline_parser.hpp"
 
 namespace duckdb {
 
 static void LoadInternal(ExtensionLoader &loader) {
-	// Extension functions will be registered here
+	auto &db = loader.GetDatabaseInstance();
+	auto &config = DBConfig::GetConfig(db);
+	ParserExtension::Register(config, PipelineParserExtension());
 }
 
 void HortusPipelineExtension::Load(ExtensionLoader &loader) {

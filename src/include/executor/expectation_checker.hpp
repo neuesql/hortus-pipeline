@@ -11,6 +11,12 @@ public:
     static string ApplyExpectations(ClientContext &context,
                                     const string &base_query,
                                     const vector<Expectation> &expectations);
+
+    // Apply expectations and also output metrics for each expectation.
+    static string ApplyExpectations(ClientContext &context,
+                                    const string &base_query,
+                                    const vector<Expectation> &expectations,
+                                    vector<ExpectationMetric> &out_metrics);
 };
 
 } // namespace duckdb

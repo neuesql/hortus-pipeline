@@ -108,6 +108,15 @@ void MaterializedViewCatalog::MarkMaterialized(const string &name) {
     it->second.is_materialized = true;
 }
 
+void MaterializedViewCatalog::SetExpectationMetrics(const string &name, const vector<ExpectationMetric> &metrics) {
+    lock_guard<mutex> lock(catalog_mutex);
+    auto it = definitions.find(name);
+    if (it == definitions.end()) {
+        throw InvalidInputException("Materialized view '%s' not found", name);
+    }
+    it->second.last_expectation_metrics = metrics;
+}
+
 void MaterializedViewCatalog::PauseSchedule(const string &name) {
     lock_guard<mutex> lock(catalog_mutex);
     auto it = definitions.find(name);

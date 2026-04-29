@@ -21,6 +21,14 @@ struct Expectation {
     ExpectationAction action;
 };
 
+struct ExpectationMetric {
+    string constraint_name;
+    int64_t total_rows;
+    int64_t passed;
+    int64_t failed;
+    string action; // "WARN", "DROP ROW", "FAIL UPDATE"
+};
+
 struct MaterializedViewDefinition {
     string name;
     string query;                       // The AS query
@@ -33,6 +41,7 @@ struct MaterializedViewDefinition {
     string schedule_interval_unit;
     string schedule_cron_expression;
     bool schedule_paused = false;
+    vector<ExpectationMetric> last_expectation_metrics;
 };
 
 class MaterializedViewCatalog {
@@ -51,6 +60,7 @@ public:
     void MarkMaterialized(const string &name);
     void PauseSchedule(const string &name);
     void ResumeSchedule(const string &name);
+    void SetExpectationMetrics(const string &name, const vector<ExpectationMetric> &metrics);
     static MaterializedViewCatalog &Get(DatabaseInstance &db);
 
 private:

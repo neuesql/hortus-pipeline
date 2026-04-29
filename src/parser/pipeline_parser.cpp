@@ -11,6 +11,7 @@ TableFunction GetRefreshMaterializedViewFunction();
 TableFunction GetRefreshAllMaterializedViewsFunction();
 TableFunction GetAlterMaterializedViewFunction();
 TableFunction GetDropMaterializedViewFunction();
+TableFunction GetExplainMaterializedViewFunction();
 } // namespace duckdb
 
 namespace duckdb {
@@ -58,6 +59,13 @@ static vector<string> Tokenize(const string &input) {
 				current.clear();
 			}
 			tokens.push_back(",");
+			i++;
+		} else if (c == '=') {
+			if (!current.empty()) {
+				tokens.push_back(current);
+				current.clear();
+			}
+			tokens.push_back("=");
 			i++;
 		} else if (c == ';') {
 			if (!current.empty()) {
@@ -442,9 +450,39 @@ static unique_ptr<PipelineParseData> ParseDrop(const vector<string> &tokens, idx
 static unique_ptr<PipelineParseData> ParseRefresh(const vector<string> &tokens, idx_t pos) {
 	// Check for REFRESH ALL MATERIALIZED VIEWS
 	if (tokens.size() >= 2 && StringUtil::CIEquals(tokens[1], "ALL")) {
-		// tokens: REFRESH ALL MATERIALIZED VIEWS
+		// tokens: REFRESH ALL MATERIALIZED VIEWS [WITH (on_failure = 'best_effort')]
 		auto data = make_uniq<PipelineParseData>();
 		data->statement_type = PipelineStatementType::REFRESH_ALL_MATERIALIZED_VIEWS;
+
+		// Check for WITH clause after VIEWS (pos = 4)
+		if (pos < tokens.size() && StringUtil::CIEquals(tokens[pos], "WITH")) {
+			pos++;
+			if (pos < tokens.size() && tokens[pos] == "(") {
+				pos++;
+				// Parse key = value pairs
+				while (pos < tokens.size() && tokens[pos] != ")") {
+					if (StringUtil::CIEquals(tokens[pos], "on_failure")) {
+						pos++; // skip key
+						// skip '=' if present as a separate token
+						if (pos < tokens.size() && tokens[pos] == "=") {
+							pos++;
+						}
+						if (pos < tokens.size()) {
+							string val = ExtractQuotedString(tokens[pos]);
+							if (StringUtil::CIEquals(val, "best_effort")) {
+								data->best_effort = true;
+							}
+							pos++;
+						}
+					} else {
+						pos++;
+					}
+				}
+				if (pos < tokens.size() && tokens[pos] == ")") {
+					pos++;
+				}
+			}
+		}
 		return data;
 	}
 
@@ -582,7 +620,9 @@ ParserExtensionParseResult PipelineParserExtension::PipelineParseFunction(Parser
 	    StringUtil::StartsWith(upper, "ALTER MATERIALIZED VIEW") ||
 	    StringUtil::StartsWith(upper, "DROP MATERIALIZED VIEW") ||
 	    StringUtil::StartsWith(upper, "REFRESH MATERIALIZED VIEW") ||
-	    StringUtil::StartsWith(upper, "REFRESH ALL MATERIALIZED VIEWS")) {
+	    StringUtil::StartsWith(upper, "REFRESH ALL MATERIALIZED VIEWS") ||
+	    StringUtil::StartsWith(upper, "EXPLAIN CREATE MATERIALIZED VIEW") ||
+	    StringUtil::StartsWith(upper, "EXPLAIN CREATE OR REFRESH MATERIALIZED VIEW")) {
 		is_ours = true;
 	}
 
@@ -599,7 +639,13 @@ ParserExtensionParseResult PipelineParserExtension::PipelineParseFunction(Parser
 
 		unique_ptr<PipelineParseData> data;
 
-		if (MatchKeywords(tokens, 0, {"CREATE", "OR", "REFRESH", "MATERIALIZED", "VIEW"})) {
+		if (MatchKeywords(tokens, 0, {"EXPLAIN", "CREATE", "OR", "REFRESH", "MATERIALIZED", "VIEW"})) {
+			data = ParseCreateOrRefresh(match_str, tokens, 6);
+			data->statement_type = PipelineStatementType::EXPLAIN_MATERIALIZED_VIEW;
+		} else if (MatchKeywords(tokens, 0, {"EXPLAIN", "CREATE", "MATERIALIZED", "VIEW"})) {
+			data = ParseCreateOrRefresh(match_str, tokens, 4);
+			data->statement_type = PipelineStatementType::EXPLAIN_MATERIALIZED_VIEW;
+		} else if (MatchKeywords(tokens, 0, {"CREATE", "OR", "REFRESH", "MATERIALIZED", "VIEW"})) {
 			data = ParseCreateOrRefresh(match_str, tokens, 5);
 		} else if (MatchKeywords(tokens, 0, {"ALTER", "MATERIALIZED", "VIEW"})) {
 			data = ParseAlter(match_str, tokens, 3);
@@ -729,6 +775,13 @@ ParserExtensionPlanResult PipelineParserExtension::PipelinePlanFunction(ParserEx
 	}
 	case PipelineStatementType::REFRESH_ALL_MATERIALIZED_VIEWS: {
 		result.function = GetRefreshAllMaterializedViewsFunction();
+		result.parameters.push_back(Value(data.best_effort ? "best_effort" : "normal"));
+		break;
+	}
+	case PipelineStatementType::EXPLAIN_MATERIALIZED_VIEW: {
+		result.function = GetExplainMaterializedViewFunction();
+		result.parameters.push_back(Value(data.view_name));
+		result.parameters.push_back(Value(data.query));
 		break;
 	}
 	}
@@ -749,7 +802,9 @@ ParserOverrideResult PipelineParserExtension::PipelineParserOverride(ParserExten
 	string upper = StringUtil::Upper(trimmed);
 
 	bool is_ours = StringUtil::StartsWith(upper, "DROP MATERIALIZED VIEW") ||
-	               StringUtil::StartsWith(upper, "ALTER MATERIALIZED VIEW");
+	               StringUtil::StartsWith(upper, "ALTER MATERIALIZED VIEW") ||
+	               StringUtil::StartsWith(upper, "EXPLAIN CREATE MATERIALIZED VIEW") ||
+	               StringUtil::StartsWith(upper, "EXPLAIN CREATE OR REFRESH MATERIALIZED VIEW");
 
 	if (!is_ours) {
 		return ParserOverrideResult();

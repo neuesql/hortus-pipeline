@@ -1,0 +1,14 @@
+# name: test/sql/explain.test
+# group: [hortus_pipeline]
+
+require hortus_pipeline
+
+statement ok
+CREATE OR REFRESH MATERIALIZED VIEW ex_source AS SELECT i AS id FROM range(10) t(i);
+
+# EXPLAIN should not fail - just verifying it produces output without error
+statement ok
+EXPLAIN CREATE MATERIALIZED VIEW ex_test AS SELECT id * 2 AS x FROM ex_source;
+
+statement ok
+DROP MATERIALIZED VIEW ex_source;

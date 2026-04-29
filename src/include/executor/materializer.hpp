@@ -7,7 +7,7 @@ namespace duckdb {
 class Materializer {
 public:
     static void Materialize(ClientContext &context, MaterializedViewCatalog &catalog, const string &view_name);
-    static void MaterializeAll(ClientContext &context, MaterializedViewCatalog &catalog);
+    static void MaterializeAll(ClientContext &context, MaterializedViewCatalog &catalog, bool best_effort = false);
 };
 
 } // namespace duckdb

@@ -14,6 +14,7 @@ namespace duckdb {
 TableFunction GetPipelineStatusFunction();
 TableFunction GetPipelineSchedulesFunction();
 TableFunction GetPipelineCheckSchedulesFunction();
+TableFunction GetPipelineExpectationsFunction();
 
 static void LoadInternal(ExtensionLoader &loader) {
 	auto &db = loader.GetDatabaseInstance();
@@ -29,6 +30,7 @@ static void LoadInternal(ExtensionLoader &loader) {
 	loader.RegisterFunction(GetPipelineStatusFunction());
 	loader.RegisterFunction(GetPipelineSchedulesFunction());
 	loader.RegisterFunction(GetPipelineCheckSchedulesFunction());
+	loader.RegisterFunction(GetPipelineExpectationsFunction());
 
 	// Start the background scheduler
 	PipelineScheduler::Get(db);

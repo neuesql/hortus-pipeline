@@ -68,7 +68,9 @@ TableFunction GetRefreshMaterializedViewFunction() {
 // REFRESH ALL MATERIALIZED VIEWS TableFunction
 //===--------------------------------------------------------------------===//
 
-struct RefreshAllMVBindData : public TableFunctionData {};
+struct RefreshAllMVBindData : public TableFunctionData {
+    bool best_effort = false;
+};
 
 struct RefreshAllMVGlobalState : public GlobalTableFunctionState {
     bool done = false;
@@ -77,6 +79,10 @@ struct RefreshAllMVGlobalState : public GlobalTableFunctionState {
 static unique_ptr<FunctionData> RefreshAllMVBind(ClientContext &context, TableFunctionBindInput &input,
                                                   vector<LogicalType> &return_types, vector<string> &names) {
     auto data = make_uniq<RefreshAllMVBindData>();
+    if (!input.inputs.empty()) {
+        string mode = StringValue::Get(input.inputs[0]);
+        data->best_effort = (mode == "best_effort");
+    }
     names.emplace_back("status");
     return_types.emplace_back(LogicalType::VARCHAR);
     return std::move(data);
@@ -87,6 +93,7 @@ static unique_ptr<GlobalTableFunctionState> RefreshAllMVInit(ClientContext &cont
 }
 
 static void RefreshAllMVFunc(ClientContext &context, TableFunctionInput &data_p, DataChunk &output) {
+    auto &bind_data = data_p.bind_data->Cast<RefreshAllMVBindData>();
     auto &state = data_p.global_state->Cast<RefreshAllMVGlobalState>();
     if (state.done) {
         return;
@@ -95,7 +102,7 @@ static void RefreshAllMVFunc(ClientContext &context, TableFunctionInput &data_p,
     auto &db = DatabaseInstance::GetDatabase(context);
     auto &catalog = MaterializedViewCatalog::Get(db);
 
-    Materializer::MaterializeAll(context, catalog);
+    Materializer::MaterializeAll(context, catalog, bind_data.best_effort);
 
     output.SetValue(0, 0, Value("All materialized views refreshed successfully"));
     output.SetCardinality(1);
@@ -103,7 +110,7 @@ static void RefreshAllMVFunc(ClientContext &context, TableFunctionInput &data_p,
 }
 
 TableFunction GetRefreshAllMaterializedViewsFunction() {
-    TableFunction func("pipeline_refresh_all_mvs", {},
+    TableFunction func("pipeline_refresh_all_mvs", {LogicalType::VARCHAR},
                        RefreshAllMVFunc, RefreshAllMVBind, RefreshAllMVInit);
     return func;
 }

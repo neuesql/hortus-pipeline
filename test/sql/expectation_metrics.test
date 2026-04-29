@@ -1,0 +1,18 @@
+# name: test/sql/expectation_metrics.test
+# group: [hortus_pipeline]
+
+require hortus_pipeline
+
+statement ok
+CREATE OR REFRESH MATERIALIZED VIEW mv_metrics
+  CONSTRAINT positive_id EXPECT (id > 0)
+  CONSTRAINT has_name EXPECT (name IS NOT NULL) ON VIOLATION DROP ROW
+AS SELECT * FROM (VALUES (1, 'a'), (-1, 'b'), (2, NULL)) t(id, name);
+
+query I
+SELECT COUNT(*) FROM pipeline_expectations() WHERE view_name = 'mv_metrics';
+----
+2
+
+statement ok
+DROP MATERIALIZED VIEW mv_metrics;

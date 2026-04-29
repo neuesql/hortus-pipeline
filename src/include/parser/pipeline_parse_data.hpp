@@ -10,7 +10,8 @@ enum class PipelineStatementType {
 	ALTER_MATERIALIZED_VIEW,
 	DROP_MATERIALIZED_VIEW,
 	REFRESH_MATERIALIZED_VIEW,
-	REFRESH_ALL_MATERIALIZED_VIEWS
+	REFRESH_ALL_MATERIALIZED_VIEWS,
+	EXPLAIN_MATERIALIZED_VIEW
 };
 
 enum class RefreshMode { SYNC, ASYNC, FULL };
@@ -38,6 +39,7 @@ struct PipelineParseData : public ParserExtensionParseData {
 	int schedule_interval = 0;
 	string schedule_interval_unit;
 	string schedule_cron_expression;
+	bool best_effort = false;
 
 	unique_ptr<ParserExtensionParseData> Copy() const override {
 		auto copy = make_uniq<PipelineParseData>();
@@ -55,6 +57,7 @@ struct PipelineParseData : public ParserExtensionParseData {
 		copy->schedule_interval = schedule_interval;
 		copy->schedule_interval_unit = schedule_interval_unit;
 		copy->schedule_cron_expression = schedule_cron_expression;
+		copy->best_effort = best_effort;
 		return std::move(copy);
 	}
 
@@ -70,6 +73,8 @@ struct PipelineParseData : public ParserExtensionParseData {
 			return "REFRESH MATERIALIZED VIEW " + view_name;
 		case PipelineStatementType::REFRESH_ALL_MATERIALIZED_VIEWS:
 			return "REFRESH ALL MATERIALIZED VIEWS";
+		case PipelineStatementType::EXPLAIN_MATERIALIZED_VIEW:
+			return "EXPLAIN CREATE MATERIALIZED VIEW " + view_name;
 		default:
 			return "UNKNOWN PIPELINE STATEMENT";
 		}

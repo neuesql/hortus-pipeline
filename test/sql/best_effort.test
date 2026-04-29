@@ -1,0 +1,18 @@
+# name: test/sql/best_effort.test
+# group: [hortus_pipeline]
+
+require hortus_pipeline
+
+statement ok
+CREATE OR REFRESH MATERIALIZED VIEW be_good AS SELECT 42 AS val;
+
+statement ok
+REFRESH ALL MATERIALIZED VIEWS WITH (on_failure = 'best_effort');
+
+query I
+SELECT val FROM be_good;
+----
+42
+
+statement ok
+DROP MATERIALIZED VIEW be_good;

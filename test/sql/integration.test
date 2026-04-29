@@ -1,0 +1,60 @@
+# name: test/sql/integration.test
+# group: [hortus_pipeline]
+
+require hortus_pipeline
+
+# Full pipeline: source -> filter -> aggregate with expectations
+
+statement ok
+CREATE OR REFRESH MATERIALIZED VIEW orders
+  CONSTRAINT valid_amount EXPECT (amount > 0)
+  CONSTRAINT valid_region EXPECT (region IS NOT NULL) ON VIOLATION DROP ROW
+AS SELECT * FROM (VALUES
+  (1, 'US', 100.0),
+  (2, 'EU', 200.0),
+  (3, NULL, 50.0),
+  (4, 'US', -10.0),
+  (5, 'EU', 300.0)
+) t(id, region, amount);
+
+query I
+SELECT COUNT(*) FROM orders;
+----
+4
+
+statement ok
+CREATE OR REFRESH MATERIALIZED VIEW us_orders AS
+  SELECT * FROM orders WHERE region = 'US';
+
+query I
+SELECT COUNT(*) FROM us_orders;
+----
+2
+
+statement ok
+CREATE OR REFRESH MATERIALIZED VIEW revenue_by_region
+  DEPENDS ON (orders)
+AS SELECT region, SUM(amount) AS total FROM orders GROUP BY region;
+
+statement ok
+ALTER MATERIALIZED VIEW us_orders AS SELECT * FROM orders WHERE region = 'US' AND amount > 0;
+
+statement ok
+REFRESH MATERIALIZED VIEW us_orders;
+
+query I
+SELECT COUNT(*) FROM us_orders;
+----
+1
+
+statement ok
+REFRESH ALL MATERIALIZED VIEWS;
+
+statement ok
+DROP MATERIALIZED VIEW revenue_by_region;
+
+statement ok
+DROP MATERIALIZED VIEW us_orders;
+
+statement ok
+DROP MATERIALIZED VIEW orders;

@@ -6,11 +6,14 @@
 #include "duckdb/function/table_function.hpp"
 #include "duckdb/main/connection.hpp"
 #include "parser/pipeline_parser.hpp"
+#include "scheduler/scheduler.hpp"
 
 namespace duckdb {
 
-// Forward declaration
+// Forward declarations
 TableFunction GetPipelineStatusFunction();
+TableFunction GetPipelineSchedulesFunction();
+TableFunction GetPipelineCheckSchedulesFunction();
 
 static void LoadInternal(ExtensionLoader &loader) {
 	auto &db = loader.GetDatabaseInstance();
@@ -22,8 +25,13 @@ static void LoadInternal(ExtensionLoader &loader) {
 	Connection conn(db);
 	conn.Query("SET allow_parser_override_extension='fallback'");
 
-	// Register pipeline_status as a callable table function
+	// Register table functions
 	loader.RegisterFunction(GetPipelineStatusFunction());
+	loader.RegisterFunction(GetPipelineSchedulesFunction());
+	loader.RegisterFunction(GetPipelineCheckSchedulesFunction());
+
+	// Start the background scheduler
+	PipelineScheduler::Get(db);
 }
 
 void HortusPipelineExtension::Load(ExtensionLoader &loader) {

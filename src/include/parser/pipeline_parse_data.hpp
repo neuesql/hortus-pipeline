@@ -14,7 +14,14 @@ enum class PipelineStatementType {
 };
 
 enum class RefreshMode { SYNC, ASYNC, FULL };
-enum class AlterAction { SET_QUERY, ADD_CONSTRAINT, DROP_CONSTRAINT };
+enum class AlterAction { SET_QUERY, ADD_CONSTRAINT, DROP_CONSTRAINT, PAUSE_SCHEDULE, RESUME_SCHEDULE };
+
+enum class ScheduleType {
+	NONE,
+	EVERY,       // SCHEDULE EVERY 1 HOUR
+	CRON,        // SCHEDULE CRON '...'
+	ON_UPDATE    // SCHEDULE TRIGGER ON UPDATE
+};
 
 struct PipelineParseData : public ParserExtensionParseData {
 	PipelineStatementType statement_type;
@@ -27,6 +34,10 @@ struct PipelineParseData : public ParserExtensionParseData {
 	AlterAction alter_action = AlterAction::SET_QUERY;
 	Expectation alter_expectation;
 	string drop_constraint_name;
+	ScheduleType schedule_type = ScheduleType::NONE;
+	int schedule_interval = 0;
+	string schedule_interval_unit;
+	string schedule_cron_expression;
 
 	unique_ptr<ParserExtensionParseData> Copy() const override {
 		auto copy = make_uniq<PipelineParseData>();
@@ -40,6 +51,10 @@ struct PipelineParseData : public ParserExtensionParseData {
 		copy->alter_action = alter_action;
 		copy->alter_expectation = alter_expectation;
 		copy->drop_constraint_name = drop_constraint_name;
+		copy->schedule_type = schedule_type;
+		copy->schedule_interval = schedule_interval;
+		copy->schedule_interval_unit = schedule_interval_unit;
+		copy->schedule_cron_expression = schedule_cron_expression;
 		return std::move(copy);
 	}
 

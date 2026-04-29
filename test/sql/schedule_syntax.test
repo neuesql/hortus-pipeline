@@ -1,0 +1,43 @@
+# name: test/sql/schedule_syntax.test
+# group: [hortus_pipeline]
+
+require hortus_pipeline
+
+statement ok
+CREATE OR REFRESH MATERIALIZED VIEW mv_hourly SCHEDULE EVERY 1 HOUR AS SELECT 1 AS id;
+
+statement ok
+CREATE OR REFRESH MATERIALIZED VIEW mv_cron SCHEDULE CRON '0 6 * * *' AS SELECT 1 AS id;
+
+statement ok
+CREATE OR REFRESH MATERIALIZED VIEW mv_trigger SCHEDULE TRIGGER ON UPDATE AS SELECT 1 AS id;
+
+query I
+SELECT COUNT(*) FROM pipeline_schedules() WHERE name IN ('mv_hourly', 'mv_cron', 'mv_trigger');
+----
+3
+
+statement ok
+ALTER MATERIALIZED VIEW mv_hourly PAUSE SCHEDULE;
+
+query I
+SELECT paused FROM pipeline_schedules() WHERE name = 'mv_hourly';
+----
+true
+
+statement ok
+ALTER MATERIALIZED VIEW mv_hourly RESUME SCHEDULE;
+
+query I
+SELECT paused FROM pipeline_schedules() WHERE name = 'mv_hourly';
+----
+false
+
+statement ok
+DROP MATERIALIZED VIEW mv_hourly;
+
+statement ok
+DROP MATERIALIZED VIEW mv_cron;
+
+statement ok
+DROP MATERIALIZED VIEW mv_trigger;

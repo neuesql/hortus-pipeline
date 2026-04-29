@@ -56,6 +56,7 @@ struct CreateMVBindData : public TableFunctionData {
     string comment;
     string serialized_expectations;
     string serialized_deps;
+    string serialized_schedule;
 };
 
 struct CreateMVGlobalState : public GlobalTableFunctionState {
@@ -70,6 +71,7 @@ static unique_ptr<FunctionData> CreateMVBind(ClientContext &context, TableFuncti
     data->comment = StringValue::Get(input.inputs[2]);
     data->serialized_expectations = StringValue::Get(input.inputs[3]);
     data->serialized_deps = StringValue::Get(input.inputs[4]);
+    data->serialized_schedule = StringValue::Get(input.inputs[5]);
 
     names.emplace_back("status");
     return_types.emplace_back(LogicalType::VARCHAR);
@@ -97,6 +99,24 @@ static void CreateMVFunc(ClientContext &context, TableFunctionInput &data_p, Dat
     catalog.CreateOrRefresh(bind_data.view_name, bind_data.query,
                             bind_data.comment, expectations, deps);
 
+    // Store schedule info if present
+    if (!bind_data.serialized_schedule.empty()) {
+        auto &def = const_cast<MaterializedViewDefinition &>(catalog.Get(bind_data.view_name));
+        if (StringUtil::StartsWith(bind_data.serialized_schedule, "EVERY:")) {
+            auto parts = StringUtil::Split(bind_data.serialized_schedule, ":");
+            if (parts.size() >= 3) {
+                def.schedule_type = 1; // EVERY
+                def.schedule_interval = std::stoi(parts[1]);
+                def.schedule_interval_unit = parts[2];
+            }
+        } else if (StringUtil::StartsWith(bind_data.serialized_schedule, "CRON:")) {
+            def.schedule_type = 2; // CRON
+            def.schedule_cron_expression = bind_data.serialized_schedule.substr(5);
+        } else if (bind_data.serialized_schedule == "ON_UPDATE") {
+            def.schedule_type = 3; // ON_UPDATE
+        }
+    }
+
     // Materialize
     Materializer::Materialize(context, catalog, bind_data.view_name);
 
@@ -108,7 +128,7 @@ static void CreateMVFunc(ClientContext &context, TableFunctionInput &data_p, Dat
 TableFunction GetCreateMaterializedViewFunction() {
     TableFunction func("pipeline_create_mv",
                        {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR,
-                        LogicalType::VARCHAR, LogicalType::VARCHAR},
+                        LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR},
                        CreateMVFunc, CreateMVBind, CreateMVInit);
     return func;
 }

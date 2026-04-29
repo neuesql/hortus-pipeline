@@ -41,6 +41,8 @@ static unique_ptr<FunctionData> AlterMVBind(ClientContext &context, TableFunctio
         data->action_string = StringValue::Get(input.inputs[4]);
     } else if (data->alter_action == "DROP_CONSTRAINT") {
         data->drop_constraint_name = StringValue::Get(input.inputs[2]);
+    } else if (data->alter_action == "PAUSE_SCHEDULE" || data->alter_action == "RESUME_SCHEDULE") {
+        // No additional params needed
     }
 
     names.emplace_back("status");
@@ -83,6 +85,12 @@ static void AlterMVFunc(ClientContext &context, TableFunctionInput &data_p, Data
     } else if (bind_data.alter_action == "DROP_CONSTRAINT") {
         catalog.DropConstraint(bind_data.view_name, bind_data.drop_constraint_name);
         status = "Dropped constraint '" + bind_data.drop_constraint_name + "' from materialized view '" + bind_data.view_name + "'";
+    } else if (bind_data.alter_action == "PAUSE_SCHEDULE") {
+        catalog.PauseSchedule(bind_data.view_name);
+        status = "Paused schedule for materialized view '" + bind_data.view_name + "'";
+    } else if (bind_data.alter_action == "RESUME_SCHEDULE") {
+        catalog.ResumeSchedule(bind_data.view_name);
+        status = "Resumed schedule for materialized view '" + bind_data.view_name + "'";
     }
 
     output.SetValue(0, 0, Value(status));

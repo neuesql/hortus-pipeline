@@ -7,6 +7,8 @@
 
 namespace duckdb {
 
+enum class ScheduleType;  // Forward declaration
+
 enum class ExpectationAction {
     WARN,       // Keep bad rows, log count
     DROP_ROW,   // Filter out bad rows
@@ -26,6 +28,11 @@ struct MaterializedViewDefinition {
     vector<Expectation> expectations;
     vector<string> explicit_dependencies; // DEPENDS ON clause (empty = auto-detect)
     bool is_materialized = false;         // Has been executed at least once
+    int schedule_type = 0;                // 0=NONE, 1=EVERY, 2=CRON, 3=ON_UPDATE
+    int schedule_interval = 0;
+    string schedule_interval_unit;
+    string schedule_cron_expression;
+    bool schedule_paused = false;
 };
 
 class MaterializedViewCatalog {
@@ -42,6 +49,8 @@ public:
     const MaterializedViewDefinition &Get(const string &name) const;
     vector<string> GetAllNames() const;
     void MarkMaterialized(const string &name);
+    void PauseSchedule(const string &name);
+    void ResumeSchedule(const string &name);
     static MaterializedViewCatalog &Get(DatabaseInstance &db);
 
 private:

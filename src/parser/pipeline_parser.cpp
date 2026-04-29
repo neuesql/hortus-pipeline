@@ -255,6 +255,50 @@ static unique_ptr<PipelineParseData> ParseCreateOrRefresh(const string &raw_quer
 			}
 			data->comment = ExtractQuotedString(tokens[pos]);
 			pos++;
+		} else if (StringUtil::CIEquals(tokens[pos], "SCHEDULE")) {
+			pos++;
+			if (pos >= tokens.size()) {
+				throw ParserException("Expected EVERY, CRON, or TRIGGER after SCHEDULE");
+			}
+			if (StringUtil::CIEquals(tokens[pos], "EVERY")) {
+				data->schedule_type = ScheduleType::EVERY;
+				pos++;
+				if (pos >= tokens.size()) {
+					throw ParserException("Expected interval number after EVERY");
+				}
+				data->schedule_interval = std::stoi(tokens[pos]);
+				pos++;
+				if (pos >= tokens.size()) {
+					throw ParserException("Expected time unit after interval number");
+				}
+				string unit = StringUtil::Upper(tokens[pos]);
+				// Normalize plural forms
+				if (unit == "SECONDS") unit = "SECOND";
+				else if (unit == "MINUTES") unit = "MINUTE";
+				else if (unit == "HOURS") unit = "HOUR";
+				else if (unit == "DAYS") unit = "DAY";
+				else if (unit == "WEEKS") unit = "WEEK";
+				data->schedule_interval_unit = unit;
+				pos++;
+			} else if (StringUtil::CIEquals(tokens[pos], "CRON")) {
+				data->schedule_type = ScheduleType::CRON;
+				pos++;
+				if (pos >= tokens.size()) {
+					throw ParserException("Expected cron expression after CRON");
+				}
+				data->schedule_cron_expression = ExtractQuotedString(tokens[pos]);
+				pos++;
+			} else if (StringUtil::CIEquals(tokens[pos], "TRIGGER")) {
+				pos++;
+				if (pos + 1 >= tokens.size() || !StringUtil::CIEquals(tokens[pos], "ON") ||
+				    !StringUtil::CIEquals(tokens[pos + 1], "UPDATE")) {
+					throw ParserException("Expected ON UPDATE after TRIGGER");
+				}
+				data->schedule_type = ScheduleType::ON_UPDATE;
+				pos += 2;
+			} else {
+				throw ParserException("Expected EVERY, CRON, or TRIGGER after SCHEDULE");
+			}
 		} else if (StringUtil::CIEquals(tokens[pos], "AS")) {
 			// The rest is the inner query - extract from raw_query
 			// Find the position of this specific AS keyword by searching forward
@@ -365,8 +409,14 @@ static unique_ptr<PipelineParseData> ParseAlter(const string &raw_query, const v
 			throw ParserException("Expected constraint name after DROP CONSTRAINT");
 		}
 		data->drop_constraint_name = tokens[pos];
+	} else if (StringUtil::CIEquals(tokens[pos], "PAUSE") && pos + 1 < tokens.size() &&
+	           StringUtil::CIEquals(tokens[pos + 1], "SCHEDULE")) {
+		data->alter_action = AlterAction::PAUSE_SCHEDULE;
+	} else if (StringUtil::CIEquals(tokens[pos], "RESUME") && pos + 1 < tokens.size() &&
+	           StringUtil::CIEquals(tokens[pos + 1], "SCHEDULE")) {
+		data->alter_action = AlterAction::RESUME_SCHEDULE;
 	} else {
-		throw ParserException("Expected AS, ADD CONSTRAINT, or DROP CONSTRAINT after ALTER MATERIALIZED VIEW name");
+		throw ParserException("Expected AS, ADD CONSTRAINT, DROP CONSTRAINT, PAUSE SCHEDULE, or RESUME SCHEDULE after ALTER MATERIALIZED VIEW name");
 	}
 
 	return data;
@@ -586,6 +636,22 @@ ParserExtensionPlanResult PipelineParserExtension::PipelinePlanFunction(ParserEx
 		result.parameters.push_back(Value(data.comment));
 		result.parameters.push_back(Value(SerializeExpectations(data.expectations)));
 		result.parameters.push_back(Value(SerializeDependsOn(data.depends_on)));
+		// Serialize schedule info
+		string schedule_str;
+		switch (data.schedule_type) {
+		case ScheduleType::EVERY:
+			schedule_str = "EVERY:" + std::to_string(data.schedule_interval) + ":" + data.schedule_interval_unit;
+			break;
+		case ScheduleType::CRON:
+			schedule_str = "CRON:" + data.schedule_cron_expression;
+			break;
+		case ScheduleType::ON_UPDATE:
+			schedule_str = "ON_UPDATE";
+			break;
+		default:
+			break;
+		}
+		result.parameters.push_back(Value(schedule_str));
 		break;
 	}
 	case PipelineStatementType::ALTER_MATERIALIZED_VIEW: {
@@ -620,6 +686,18 @@ ParserExtensionPlanResult PipelineParserExtension::PipelinePlanFunction(ParserEx
 		case AlterAction::DROP_CONSTRAINT:
 			result.parameters.push_back(Value("DROP_CONSTRAINT"));
 			result.parameters.push_back(Value(data.drop_constraint_name));
+			result.parameters.push_back(Value(""));
+			result.parameters.push_back(Value(""));
+			break;
+		case AlterAction::PAUSE_SCHEDULE:
+			result.parameters.push_back(Value("PAUSE_SCHEDULE"));
+			result.parameters.push_back(Value(""));
+			result.parameters.push_back(Value(""));
+			result.parameters.push_back(Value(""));
+			break;
+		case AlterAction::RESUME_SCHEDULE:
+			result.parameters.push_back(Value("RESUME_SCHEDULE"));
+			result.parameters.push_back(Value(""));
 			result.parameters.push_back(Value(""));
 			result.parameters.push_back(Value(""));
 			break;

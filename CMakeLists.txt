@@ -24,7 +24,9 @@ set(EXTENSION_SOURCES
     src/functions/refresh_materialized_view.cpp
     src/functions/alter_materialized_view.cpp
     src/functions/drop_materialized_view.cpp
-    src/functions/pipeline_status.cpp)
+    src/functions/pipeline_status.cpp
+    src/functions/pipeline_schedules.cpp
+    src/scheduler/scheduler.cpp)
 
 build_static_extension(${TARGET_NAME} ${EXTENSION_SOURCES})
 build_loadable_extension(${TARGET_NAME} " " ${EXTENSION_SOURCES})

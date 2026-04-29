@@ -1,0 +1,20 @@
+# name: test/sql/dag_resolution.test
+# group: [hortus_pipeline]
+
+require hortus_pipeline
+
+statement ok
+CREATE OR REFRESH MATERIALIZED VIEW dag_source AS SELECT i AS id FROM range(3) t(i);
+
+statement ok
+CREATE OR REFRESH MATERIALIZED VIEW dag_mid AS SELECT id, id * 2 AS doubled FROM dag_source;
+
+statement ok
+CREATE OR REFRESH MATERIALIZED VIEW dag_leaf AS SELECT doubled, doubled + 1 AS plus_one FROM dag_mid;
+
+query II
+SELECT * FROM dag_leaf ORDER BY doubled;
+----
+0	1
+2	3
+4	5

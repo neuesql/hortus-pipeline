@@ -3,6 +3,13 @@
 #include "duckdb/common/string_util.hpp"
 #include "duckdb/function/table_function.hpp"
 
+// Forward declarations for table functions defined in src/functions/
+namespace duckdb {
+TableFunction GetCreateMaterializedViewFunction();
+TableFunction GetRefreshMaterializedViewFunction();
+TableFunction GetRefreshAllMaterializedViewsFunction();
+} // namespace duckdb
+
 namespace duckdb {
 
 //===--------------------------------------------------------------------===//
@@ -100,6 +107,25 @@ static idx_t FindLastAS(const string &input) {
 			paren_depth--;
 		} else if (paren_depth == 0 && upper.substr(i, 4) == " AS ") {
 			return (idx_t)(i + 4); // Position after " AS "
+		}
+	}
+	return DConstants::INVALID_INDEX;
+}
+
+// Find the first top-level AS keyword after a starting position (skipping content inside parens)
+static idx_t FindFirstASAfter(const string &input, idx_t start_pos) {
+	string upper = StringUtil::Upper(input);
+	int paren_depth = 0;
+	for (idx_t i = start_pos; i + 2 < upper.size(); i++) {
+		char c = upper[i];
+		if (c == '(') {
+			paren_depth++;
+		} else if (c == ')') {
+			paren_depth--;
+		} else if (paren_depth == 0 && std::isspace(static_cast<unsigned char>(upper[i])) &&
+		           i + 3 < upper.size() && upper[i + 1] == 'A' && upper[i + 2] == 'S' &&
+		           std::isspace(static_cast<unsigned char>(upper[i + 3]))) {
+			return (idx_t)(i + 4); // Position after "<ws>AS<ws>"
 		}
 	}
 	return DConstants::INVALID_INDEX;
@@ -228,7 +254,14 @@ static unique_ptr<PipelineParseData> ParseCreateOrRefresh(const string &raw_quer
 			pos++;
 		} else if (StringUtil::CIEquals(tokens[pos], "AS")) {
 			// The rest is the inner query - extract from raw_query
-			idx_t as_pos = FindLastAS(raw_query);
+			// Find the position of this specific AS keyword by searching forward
+			// from the view name position in the raw string
+			string upper_raw = StringUtil::Upper(raw_query);
+			// Find the view name in the raw query to know where to start searching
+			string upper_view = StringUtil::Upper(data->view_name);
+			idx_t view_pos = upper_raw.find(upper_view);
+			idx_t search_start = (view_pos != string::npos) ? view_pos + upper_view.size() : 0;
+			idx_t as_pos = FindFirstASAfter(raw_query, search_start);
 			if (as_pos == DConstants::INVALID_INDEX) {
 				throw ParserException("Could not find AS clause in CREATE OR REFRESH MATERIALIZED VIEW");
 			}
@@ -533,30 +566,55 @@ ParserExtensionPlanResult PipelineParserExtension::PipelinePlanFunction(ParserEx
 	auto &data = dynamic_cast<PipelineParseData &>(*parse_data);
 
 	ParserExtensionPlanResult result;
-	result.function = GetPlaceholderFunction();
 	result.requires_valid_transaction = true;
 	result.return_type = StatementReturnType::QUERY_RESULT;
 
-	string message;
 	switch (data.statement_type) {
-	case PipelineStatementType::CREATE_MATERIALIZED_VIEW:
-		message = "CREATE OR REFRESH MATERIALIZED VIEW " + data.view_name + " - not yet implemented";
-		break;
-	case PipelineStatementType::ALTER_MATERIALIZED_VIEW:
-		message = "ALTER MATERIALIZED VIEW " + data.view_name + " - not yet implemented";
-		break;
-	case PipelineStatementType::DROP_MATERIALIZED_VIEW:
-		message = "DROP MATERIALIZED VIEW " + data.view_name + " - not yet implemented";
-		break;
-	case PipelineStatementType::REFRESH_MATERIALIZED_VIEW:
-		message = "REFRESH MATERIALIZED VIEW " + data.view_name + " - not yet implemented";
-		break;
-	case PipelineStatementType::REFRESH_ALL_MATERIALIZED_VIEWS:
-		message = "REFRESH ALL MATERIALIZED VIEWS - not yet implemented";
+	case PipelineStatementType::CREATE_MATERIALIZED_VIEW: {
+		result.function = GetCreateMaterializedViewFunction();
+		result.parameters.push_back(Value(data.view_name));
+		result.parameters.push_back(Value(data.query));
+		result.parameters.push_back(Value(data.comment));
+		result.parameters.push_back(Value(SerializeExpectations(data.expectations)));
+		result.parameters.push_back(Value(SerializeDependsOn(data.depends_on)));
 		break;
 	}
+	case PipelineStatementType::ALTER_MATERIALIZED_VIEW: {
+		// Still placeholder for now
+		result.function = GetPlaceholderFunction();
+		result.parameters.push_back(Value("ALTER MATERIALIZED VIEW " + data.view_name + " - not yet implemented"));
+		break;
+	}
+	case PipelineStatementType::DROP_MATERIALIZED_VIEW: {
+		// Still placeholder for now
+		result.function = GetPlaceholderFunction();
+		result.parameters.push_back(Value("DROP MATERIALIZED VIEW " + data.view_name + " - not yet implemented"));
+		break;
+	}
+	case PipelineStatementType::REFRESH_MATERIALIZED_VIEW: {
+		result.function = GetRefreshMaterializedViewFunction();
+		string mode_str;
+		switch (data.refresh_mode) {
+		case RefreshMode::SYNC:
+			mode_str = "SYNC";
+			break;
+		case RefreshMode::ASYNC:
+			mode_str = "ASYNC";
+			break;
+		case RefreshMode::FULL:
+			mode_str = "FULL";
+			break;
+		}
+		result.parameters.push_back(Value(data.view_name));
+		result.parameters.push_back(Value(mode_str));
+		break;
+	}
+	case PipelineStatementType::REFRESH_ALL_MATERIALIZED_VIEWS: {
+		result.function = GetRefreshAllMaterializedViewsFunction();
+		break;
+	}
+	}
 
-	result.parameters.push_back(Value(message));
 	return result;
 }
 

@@ -11,13 +11,18 @@ SELECT 1;
 ----
 1
 
-# Test that our custom SQL statements are parsed and routed (placeholder responses)
+# Test that our custom SQL statements are parsed and routed
 query I
-CREATE OR REFRESH MATERIALIZED VIEW test_view AS SELECT 1;
+CREATE OR REFRESH MATERIALIZED VIEW test_view AS SELECT 1 AS val;
 ----
-CREATE OR REFRESH MATERIALIZED VIEW test_view - not yet implemented
+Materialized view 'test_view' created successfully
+
+query I
+SELECT val FROM test_view;
+----
+1
 
 query I
 REFRESH ALL MATERIALIZED VIEWS;
 ----
-REFRESH ALL MATERIALIZED VIEWS - not yet implemented
+All materialized views refreshed successfully

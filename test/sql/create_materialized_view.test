@@ -1,0 +1,28 @@
+# name: test/sql/create_materialized_view.test
+# group: [hortus_pipeline]
+
+require hortus_pipeline
+
+statement ok
+CREATE OR REFRESH MATERIALIZED VIEW mv_test AS SELECT 1 AS id, 'hello' AS name;
+
+query II
+SELECT * FROM mv_test;
+----
+1	hello
+
+statement ok
+CREATE OR REFRESH MATERIALIZED VIEW mv_numbers AS SELECT i AS num FROM range(5) t(i);
+
+query I
+SELECT COUNT(*) FROM mv_numbers;
+----
+5
+
+statement ok
+CREATE OR REFRESH MATERIALIZED VIEW mv_test AS SELECT 2 AS id, 'world' AS name;
+
+query II
+SELECT * FROM mv_test;
+----
+2	world

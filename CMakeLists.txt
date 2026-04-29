@@ -16,7 +16,12 @@ include_directories(src/include)
 set(EXTENSION_SOURCES
     src/hortus_pipeline_extension.cpp
     src/catalog/materialized_view_catalog.cpp
-    src/parser/pipeline_parser.cpp)
+    src/parser/pipeline_parser.cpp
+    src/executor/expectation_checker.cpp
+    src/executor/dag_resolver.cpp
+    src/executor/materializer.cpp
+    src/functions/create_materialized_view.cpp
+    src/functions/refresh_materialized_view.cpp)
 
 build_static_extension(${TARGET_NAME} ${EXTENSION_SOURCES})
 build_loadable_extension(${TARGET_NAME} " " ${EXTENSION_SOURCES})

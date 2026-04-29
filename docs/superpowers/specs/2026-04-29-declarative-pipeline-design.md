@@ -228,3 +228,25 @@ dp.refresh_materialized_view('customers')
 dp.refresh_all()
 dp.pipeline_status()
 ```
+
+---
+
+## References
+
+### DuckDB
+- [DuckDB Community Extensions Development](https://duckdb.org/community_extensions/development) — how to build and distribute DuckDB extensions
+- [DuckDB CREATE VIEW](https://duckdb.org/docs/lts/sql/statements/create_view) — native VIEW/TEMP VIEW syntax
+- [DuckDB Python API](https://github.com/duckdb/duckdb-python) — base for `hortus-pipeline-python` repo
+- [Query-farm/cronjob](https://github.com/Query-farm/cronjob) — DuckDB extension using background threads for scheduling (reference pattern for scheduler engine)
+
+### Databricks Lakeflow / Spark Declarative Pipelines
+- [Spark Declarative Pipelines Programming Guide](https://spark.apache.org/docs/latest/declarative-pipelines-programming-guide.html) — original concept inspiration
+- [Pipeline SQL Language Reference](https://docs.databricks.com/aws/en/ldp/developer/sql-ref) — SQL statement index
+- [CREATE MATERIALIZED VIEW](https://docs.databricks.com/aws/en/ldp/developer/ldp-sql-ref-create-materialized-view) — full syntax spec
+- [CREATE STREAMING TABLE](https://docs.databricks.com/aws/en/ldp/developer/ldp-sql-ref-create-streaming-table) — full syntax spec
+- [CREATE TEMPORARY VIEW](https://docs.databricks.com/aws/en/ldp/developer/ldp-sql-ref-create-temporary-view) — full syntax spec
+- [CREATE FLOW](https://docs.databricks.com/aws/en/ldp/developer/ldp-sql-ref-create-flow) — flow syntax and semantics
+- [Pipeline Expectations](https://docs.databricks.com/aws/en/ldp/expectations) — data quality expectations design
+- [Python SDK Reference (pyspark.pipelines)](https://docs.databricks.com/aws/en/ldp/developer/python-ref) — Python decorator API reference
+- [Incremental Refresh for Materialized Views](https://docs.databricks.com/aws/en/optimizations/incremental-refresh) — Enzyme engine and refresh modes
+- [Triggered vs Continuous Pipeline Mode](https://docs.databricks.com/aws/en/ldp/pipeline-mode) — schedule/trigger modes

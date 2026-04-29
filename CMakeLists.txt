@@ -21,7 +21,10 @@ set(EXTENSION_SOURCES
     src/executor/dag_resolver.cpp
     src/executor/materializer.cpp
     src/functions/create_materialized_view.cpp
-    src/functions/refresh_materialized_view.cpp)
+    src/functions/refresh_materialized_view.cpp
+    src/functions/alter_materialized_view.cpp
+    src/functions/drop_materialized_view.cpp
+    src/functions/pipeline_status.cpp)
 
 build_static_extension(${TARGET_NAME} ${EXTENSION_SOURCES})
 build_loadable_extension(${TARGET_NAME} " " ${EXTENSION_SOURCES})

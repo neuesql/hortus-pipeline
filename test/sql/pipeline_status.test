@@ -1,0 +1,15 @@
+# name: test/sql/pipeline_status.test
+# group: [hortus_pipeline]
+
+require hortus_pipeline
+
+statement ok
+CREATE OR REFRESH MATERIALIZED VIEW ps_source AS SELECT 1 AS id;
+
+statement ok
+CREATE OR REFRESH MATERIALIZED VIEW ps_derived AS SELECT id * 2 AS x FROM ps_source;
+
+query I
+SELECT COUNT(*) FROM pipeline_status() WHERE name IN ('ps_source', 'ps_derived');
+----
+2

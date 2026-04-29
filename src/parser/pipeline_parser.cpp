@@ -2,12 +2,15 @@
 #include "parser/pipeline_parse_data.hpp"
 #include "duckdb/common/string_util.hpp"
 #include "duckdb/function/table_function.hpp"
+#include "duckdb/parser/statement/extension_statement.hpp"
 
 // Forward declarations for table functions defined in src/functions/
 namespace duckdb {
 TableFunction GetCreateMaterializedViewFunction();
 TableFunction GetRefreshMaterializedViewFunction();
 TableFunction GetRefreshAllMaterializedViewsFunction();
+TableFunction GetAlterMaterializedViewFunction();
+TableFunction GetDropMaterializedViewFunction();
 } // namespace duckdb
 
 namespace duckdb {
@@ -302,7 +305,12 @@ static unique_ptr<PipelineParseData> ParseAlter(const string &raw_query, const v
 	if (StringUtil::CIEquals(tokens[pos], "AS")) {
 		// ALTER MATERIALIZED VIEW name AS query
 		data->alter_action = AlterAction::SET_QUERY;
-		idx_t as_pos = FindLastAS(raw_query);
+		// Find the first AS after the view name (not the last AS, which could be inside the query)
+		string upper_raw = StringUtil::Upper(raw_query);
+		string upper_view = StringUtil::Upper(data->view_name);
+		idx_t view_pos = upper_raw.find(upper_view);
+		idx_t search_start = (view_pos != string::npos) ? view_pos + upper_view.size() : 0;
+		idx_t as_pos = FindFirstASAfter(raw_query, search_start);
 		if (as_pos == DConstants::INVALID_INDEX) {
 			throw ParserException("Could not find AS clause in ALTER MATERIALIZED VIEW");
 		}
@@ -499,6 +507,7 @@ static string SerializeDependsOn(const vector<string> &deps) {
 PipelineParserExtension::PipelineParserExtension() {
 	parse_function = PipelineParseFunction;
 	plan_function = PipelinePlanFunction;
+	parser_override = PipelineParserOverride;
 }
 
 ParserExtensionParseResult PipelineParserExtension::PipelineParseFunction(ParserExtensionInfo *info,
@@ -580,15 +589,46 @@ ParserExtensionPlanResult PipelineParserExtension::PipelinePlanFunction(ParserEx
 		break;
 	}
 	case PipelineStatementType::ALTER_MATERIALIZED_VIEW: {
-		// Still placeholder for now
-		result.function = GetPlaceholderFunction();
-		result.parameters.push_back(Value("ALTER MATERIALIZED VIEW " + data.view_name + " - not yet implemented"));
+		result.function = GetAlterMaterializedViewFunction();
+		result.parameters.push_back(Value(data.view_name));
+		switch (data.alter_action) {
+		case AlterAction::SET_QUERY:
+			result.parameters.push_back(Value("SET_QUERY"));
+			result.parameters.push_back(Value(data.query));
+			result.parameters.push_back(Value(""));
+			result.parameters.push_back(Value(""));
+			break;
+		case AlterAction::ADD_CONSTRAINT: {
+			result.parameters.push_back(Value("ADD_CONSTRAINT"));
+			result.parameters.push_back(Value(data.alter_expectation.name));
+			result.parameters.push_back(Value(data.alter_expectation.expression));
+			string action_str;
+			switch (data.alter_expectation.action) {
+			case ExpectationAction::WARN:
+				action_str = "WARN";
+				break;
+			case ExpectationAction::DROP_ROW:
+				action_str = "DROP_ROW";
+				break;
+			case ExpectationAction::FAIL_UPDATE:
+				action_str = "FAIL_UPDATE";
+				break;
+			}
+			result.parameters.push_back(Value(action_str));
+			break;
+		}
+		case AlterAction::DROP_CONSTRAINT:
+			result.parameters.push_back(Value("DROP_CONSTRAINT"));
+			result.parameters.push_back(Value(data.drop_constraint_name));
+			result.parameters.push_back(Value(""));
+			result.parameters.push_back(Value(""));
+			break;
+		}
 		break;
 	}
 	case PipelineStatementType::DROP_MATERIALIZED_VIEW: {
-		// Still placeholder for now
-		result.function = GetPlaceholderFunction();
-		result.parameters.push_back(Value("DROP MATERIALIZED VIEW " + data.view_name + " - not yet implemented"));
+		result.function = GetDropMaterializedViewFunction();
+		result.parameters.push_back(Value(data.view_name));
 		break;
 	}
 	case PipelineStatementType::REFRESH_MATERIALIZED_VIEW: {
@@ -616,6 +656,46 @@ ParserExtensionPlanResult PipelineParserExtension::PipelinePlanFunction(ParserEx
 	}
 
 	return result;
+}
+
+ParserOverrideResult PipelineParserExtension::PipelineParserOverride(ParserExtensionInfo *info, const string &query,
+                                                                     ParserOptions &options) {
+	// Only intercept DROP MATERIALIZED VIEW and ALTER MATERIALIZED VIEW
+	// These are needed because DuckDB's native parser accepts them but fails at transform
+	string trimmed = query;
+	StringUtil::Trim(trimmed);
+	while (!trimmed.empty() && trimmed.back() == ';') {
+		trimmed.pop_back();
+	}
+	StringUtil::Trim(trimmed);
+	string upper = StringUtil::Upper(trimmed);
+
+	bool is_ours = StringUtil::StartsWith(upper, "DROP MATERIALIZED VIEW") ||
+	               StringUtil::StartsWith(upper, "ALTER MATERIALIZED VIEW");
+
+	if (!is_ours) {
+		return ParserOverrideResult();
+	}
+
+	// Parse using our parse function
+	auto parse_result = PipelineParseFunction(info, query);
+	if (parse_result.type != ParserExtensionResultType::PARSE_SUCCESSFUL) {
+		try {
+			throw ParserException("%s", parse_result.error);
+		} catch (std::exception &e) {
+			return ParserOverrideResult(e);
+		}
+	}
+
+	// Create an ExtensionStatement wrapping our parse data
+	PipelineParserExtension ext;
+	auto statement = make_uniq<ExtensionStatement>(ext, std::move(parse_result.parse_data));
+	statement->stmt_length = query.size();
+	statement->stmt_location = 0;
+
+	vector<unique_ptr<SQLStatement>> statements;
+	statements.push_back(std::move(statement));
+	return ParserOverrideResult(std::move(statements));
 }
 
 } // namespace duckdb

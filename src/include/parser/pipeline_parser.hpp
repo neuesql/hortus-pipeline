@@ -11,6 +11,8 @@ public:
 	static ParserExtensionParseResult PipelineParseFunction(ParserExtensionInfo *info, const string &query);
 	static ParserExtensionPlanResult PipelinePlanFunction(ParserExtensionInfo *info, ClientContext &context,
 	                                                      unique_ptr<ParserExtensionParseData> parse_data);
+	static ParserOverrideResult PipelineParserOverride(ParserExtensionInfo *info, const string &query,
+	                                                   ParserOptions &options);
 };
 
 } // namespace duckdb

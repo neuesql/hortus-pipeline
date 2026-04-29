@@ -1,0 +1,34 @@
+# name: test/sql/alter_materialized_view.test
+# group: [hortus_pipeline]
+
+require hortus_pipeline
+
+statement ok
+CREATE OR REFRESH MATERIALIZED VIEW mv_alter AS SELECT 1 AS id, 'hello' AS name;
+
+statement ok
+ALTER MATERIALIZED VIEW mv_alter AS SELECT 2 AS id, 'world' AS name;
+
+query II
+SELECT * FROM mv_alter;
+----
+1	hello
+
+statement ok
+REFRESH MATERIALIZED VIEW mv_alter;
+
+query II
+SELECT * FROM mv_alter;
+----
+2	world
+
+statement ok
+ALTER MATERIALIZED VIEW mv_alter ADD CONSTRAINT positive_id EXPECT (id > 0);
+
+statement ok
+ALTER MATERIALIZED VIEW mv_alter DROP CONSTRAINT positive_id;
+
+statement error
+ALTER MATERIALIZED VIEW nonexistent AS SELECT 1;
+----
+not found

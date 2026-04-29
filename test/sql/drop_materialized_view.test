@@ -1,0 +1,25 @@
+# name: test/sql/drop_materialized_view.test
+# group: [hortus_pipeline]
+
+require hortus_pipeline
+
+statement ok
+CREATE OR REFRESH MATERIALIZED VIEW mv_drop AS SELECT 1 AS id;
+
+query I
+SELECT * FROM mv_drop;
+----
+1
+
+statement ok
+DROP MATERIALIZED VIEW mv_drop;
+
+statement error
+SELECT * FROM mv_drop;
+----
+does not exist
+
+statement error
+DROP MATERIALIZED VIEW mv_drop;
+----
+not found

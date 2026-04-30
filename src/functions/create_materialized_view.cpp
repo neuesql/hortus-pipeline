@@ -130,14 +130,14 @@ static void CreateMVFunc(ClientContext &context, TableFunctionInput &data_p, Dat
     auto resolved = PipelinePersistence::ResolveQualifiedName(bind_data.view_name);
     auto &database = resolved.first;
     auto &unqualified_name = resolved.second;
-    auto &persistence = PipelinePersistence::Get(db);
-    persistence.PersistView(database, unqualified_name, bind_data.query,
+    auto &persistence = PipelinePersistence::Get();
+    persistence.PersistView(db, database, unqualified_name, bind_data.query,
                             bind_data.comment, expectations, deps);
 
     // Persist schedule if present
     if (!bind_data.serialized_schedule.empty()) {
         auto &def = catalog.Get(bind_data.view_name);
-        persistence.PersistSchedule(database, unqualified_name,
+        persistence.PersistSchedule(db, database, unqualified_name,
                                      def.schedule_type, def.schedule_interval,
                                      def.schedule_interval_unit, def.schedule_cron_expression);
     }

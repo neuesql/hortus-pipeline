@@ -4,18 +4,10 @@
 
 namespace duckdb {
 
-static unique_ptr<PipelinePersistence> global_persistence_instance;
-static std::mutex global_persistence_mutex;
+static PipelinePersistence global_persistence_instance;
 
-PipelinePersistence &PipelinePersistence::Get(DatabaseInstance &db) {
-    lock_guard<std::mutex> lock(global_persistence_mutex);
-    if (!global_persistence_instance) {
-        global_persistence_instance = make_uniq<PipelinePersistence>(db);
-    }
-    return *global_persistence_instance;
-}
-
-PipelinePersistence::PipelinePersistence(DatabaseInstance &db) : db(db) {
+PipelinePersistence &PipelinePersistence::Get() {
+    return global_persistence_instance;
 }
 
 string PipelinePersistence::QualifyTable(const string &database, const string &table) {
@@ -33,16 +25,16 @@ pair<string, string> PipelinePersistence::ResolveQualifiedName(const string &qua
     return {qualified_name.substr(0, dot_pos), qualified_name.substr(dot_pos + 1)};
 }
 
-void PipelinePersistence::EnsureInitialized(const string &database) {
+void PipelinePersistence::EnsureInitialized(DatabaseInstance &db, const string &database) {
     lock_guard<std::mutex> lock(mutex);
     if (initialized_databases.count(database)) {
         return;
     }
-    CreateSchema(database);
+    CreateSchema(db, database);
     initialized_databases.insert(database);
 }
 
-void PipelinePersistence::CreateSchema(const string &database) {
+void PipelinePersistence::CreateSchema(DatabaseInstance &db, const string &database) {
     Connection conn(db);
 
     string schema_prefix = database.empty() ? "" : database + ".";
@@ -83,7 +75,7 @@ void PipelinePersistence::CreateSchema(const string &database) {
                "finished_at TIMESTAMP, "
                "success BOOLEAN, "
                "error_message VARCHAR, "
-               "trigger VARCHAR, "
+               "\"trigger\" VARCHAR, "
                "rows_affected BIGINT)");
 
     conn.Query("CREATE TABLE IF NOT EXISTS " + QualifyTable(database, "expectation_logs") + " ("
@@ -100,27 +92,25 @@ static string EscapeSQL(const string &val) {
     return StringUtil::Replace(val, "'", "''");
 }
 
-void PipelinePersistence::PersistView(const string &database, const string &name, const string &query,
-                                      const string &comment, const vector<Expectation> &expectations,
+void PipelinePersistence::PersistView(DatabaseInstance &db, const string &database, const string &name,
+                                      const string &query, const string &comment,
+                                      const vector<Expectation> &expectations,
                                       const vector<string> &depends_on) {
-    EnsureInitialized(database);
+    EnsureInitialized(db, database);
     Connection conn(db);
 
-    // Build dependencies string
     string deps;
     for (idx_t i = 0; i < depends_on.size(); i++) {
         if (i > 0) deps += ",";
         deps += depends_on[i];
     }
 
-    // Upsert: delete then insert for views
     conn.Query("DELETE FROM " + QualifyTable(database, "views") + " WHERE name = '" + EscapeSQL(name) + "'");
     conn.Query("INSERT INTO " + QualifyTable(database, "views") +
                " (name, query, comment, dependencies, is_materialized) VALUES ('" +
                EscapeSQL(name) + "', '" + EscapeSQL(query) + "', '" + EscapeSQL(comment) +
                "', '" + EscapeSQL(deps) + "', false)");
 
-    // Upsert constraints: delete then insert
     conn.Query("DELETE FROM " + QualifyTable(database, "constraints") + " WHERE view_name = '" + EscapeSQL(name) + "'");
     for (auto &exp : expectations) {
         string action_str;
@@ -136,10 +126,10 @@ void PipelinePersistence::PersistView(const string &database, const string &name
     }
 }
 
-void PipelinePersistence::PersistSchedule(const string &database, const string &name,
+void PipelinePersistence::PersistSchedule(DatabaseInstance &db, const string &database, const string &name,
                                           int schedule_type, int interval_value,
                                           const string &interval_unit, const string &cron_expression) {
-    EnsureInitialized(database);
+    EnsureInitialized(db, database);
     Connection conn(db);
 
     conn.Query("DELETE FROM " + QualifyTable(database, "schedules") + " WHERE view_name = '" + EscapeSQL(name) + "'");
@@ -150,8 +140,9 @@ void PipelinePersistence::PersistSchedule(const string &database, const string &
                EscapeSQL(cron_expression) + "')");
 }
 
-void PipelinePersistence::UpdateViewQuery(const string &database, const string &name, const string &query) {
-    EnsureInitialized(database);
+void PipelinePersistence::UpdateViewQuery(DatabaseInstance &db, const string &database,
+                                          const string &name, const string &query) {
+    EnsureInitialized(db, database);
     Connection conn(db);
 
     conn.Query("UPDATE " + QualifyTable(database, "views") +
@@ -159,8 +150,8 @@ void PipelinePersistence::UpdateViewQuery(const string &database, const string &
                " WHERE name = '" + EscapeSQL(name) + "'");
 }
 
-void PipelinePersistence::UpdateViewMaterialized(const string &database, const string &name) {
-    EnsureInitialized(database);
+void PipelinePersistence::UpdateViewMaterialized(DatabaseInstance &db, const string &database, const string &name) {
+    EnsureInitialized(db, database);
     Connection conn(db);
 
     conn.Query("UPDATE " + QualifyTable(database, "views") +
@@ -168,10 +159,10 @@ void PipelinePersistence::UpdateViewMaterialized(const string &database, const s
                " WHERE name = '" + EscapeSQL(name) + "'");
 }
 
-void PipelinePersistence::AddConstraint(const string &database, const string &name,
+void PipelinePersistence::AddConstraint(DatabaseInstance &db, const string &database, const string &name,
                                         const string &constraint_name, const string &expression,
                                         const string &action) {
-    EnsureInitialized(database);
+    EnsureInitialized(db, database);
     Connection conn(db);
 
     conn.Query("INSERT INTO " + QualifyTable(database, "constraints") +
@@ -180,9 +171,9 @@ void PipelinePersistence::AddConstraint(const string &database, const string &na
                EscapeSQL(expression) + "', '" + EscapeSQL(action) + "')");
 }
 
-void PipelinePersistence::DropConstraint(const string &database, const string &name,
+void PipelinePersistence::DropConstraint(DatabaseInstance &db, const string &database, const string &name,
                                          const string &constraint_name) {
-    EnsureInitialized(database);
+    EnsureInitialized(db, database);
     Connection conn(db);
 
     conn.Query("DELETE FROM " + QualifyTable(database, "constraints") +
@@ -190,8 +181,9 @@ void PipelinePersistence::DropConstraint(const string &database, const string &n
                EscapeSQL(constraint_name) + "'");
 }
 
-void PipelinePersistence::UpdateSchedulePaused(const string &database, const string &name, bool paused) {
-    EnsureInitialized(database);
+void PipelinePersistence::UpdateSchedulePaused(DatabaseInstance &db, const string &database,
+                                               const string &name, bool paused) {
+    EnsureInitialized(db, database);
     Connection conn(db);
 
     conn.Query("UPDATE " + QualifyTable(database, "schedules") +
@@ -199,8 +191,8 @@ void PipelinePersistence::UpdateSchedulePaused(const string &database, const str
                " WHERE view_name = '" + EscapeSQL(name) + "'");
 }
 
-void PipelinePersistence::UpdateScheduleLastRun(const string &database, const string &name) {
-    EnsureInitialized(database);
+void PipelinePersistence::UpdateScheduleLastRun(DatabaseInstance &db, const string &database, const string &name) {
+    EnsureInitialized(db, database);
     Connection conn(db);
 
     conn.Query("UPDATE " + QualifyTable(database, "schedules") +
@@ -208,8 +200,8 @@ void PipelinePersistence::UpdateScheduleLastRun(const string &database, const st
                " WHERE view_name = '" + EscapeSQL(name) + "'");
 }
 
-void PipelinePersistence::CascadeDelete(const string &database, const string &name) {
-    EnsureInitialized(database);
+void PipelinePersistence::CascadeDelete(DatabaseInstance &db, const string &database, const string &name) {
+    EnsureInitialized(db, database);
     Connection conn(db);
 
     conn.Query("DELETE FROM " + QualifyTable(database, "expectation_logs") +
@@ -224,13 +216,13 @@ void PipelinePersistence::CascadeDelete(const string &database, const string &na
                " WHERE name = '" + EscapeSQL(name) + "'");
 }
 
-int64_t PipelinePersistence::InsertRunLog(const string &database, const string &view_name,
-                                          const string &trigger) {
-    EnsureInitialized(database);
+int64_t PipelinePersistence::InsertRunLog(DatabaseInstance &db, const string &database,
+                                          const string &view_name, const string &trigger) {
+    EnsureInitialized(db, database);
     Connection conn(db);
 
     auto result = conn.Query("INSERT INTO " + QualifyTable(database, "run_logs") +
-                            " (view_name, trigger) VALUES ('" +
+                            " (view_name, \"trigger\") VALUES ('" +
                             EscapeSQL(view_name) + "', '" + EscapeSQL(trigger) +
                             "') RETURNING run_id");
     if (result->HasError() || result->RowCount() == 0) {
@@ -239,24 +231,25 @@ int64_t PipelinePersistence::InsertRunLog(const string &database, const string &
     return result->GetValue(0, 0).GetValue<int64_t>();
 }
 
-void PipelinePersistence::CompleteRunLog(const string &database, int64_t run_id, bool success,
-                                         const string &error_message, int64_t rows_affected) {
-    EnsureInitialized(database);
+void PipelinePersistence::CompleteRunLog(DatabaseInstance &db, const string &database, int64_t run_id,
+                                         bool success, const string &error_message, int64_t rows_affected) {
+    EnsureInitialized(db, database);
     Connection conn(db);
 
     conn.Query("UPDATE " + QualifyTable(database, "run_logs") +
                " SET finished_at = current_timestamp, success = " +
                (success ? string("true") : string("false")) +
-               ", error_message = '" + EscapeSQL(error_message) +
-               "', rows_affected = " + std::to_string(rows_affected) +
+               ", error_message = " +
+               (error_message.empty() ? string("NULL") : "'" + EscapeSQL(error_message) + "'") +
+               ", rows_affected = " + std::to_string(rows_affected) +
                " WHERE run_id = " + std::to_string(run_id));
 }
 
-void PipelinePersistence::InsertExpectationLog(const string &database, int64_t run_id,
+void PipelinePersistence::InsertExpectationLog(DatabaseInstance &db, const string &database, int64_t run_id,
                                                const string &view_name, const string &constraint_name,
                                                int64_t total_rows, int64_t passed, int64_t failed,
                                                const string &action) {
-    EnsureInitialized(database);
+    EnsureInitialized(db, database);
     Connection conn(db);
 
     conn.Query("INSERT INTO " + QualifyTable(database, "expectation_logs") +
@@ -267,26 +260,24 @@ void PipelinePersistence::InsertExpectationLog(const string &database, int64_t r
                EscapeSQL(action) + "')");
 }
 
-void PipelinePersistence::HydrateFromDatabase(const string &database, MaterializedViewCatalog &catalog) {
+void PipelinePersistence::HydrateFromDatabase(DatabaseInstance &db, const string &database,
+                                               MaterializedViewCatalog &catalog) {
     Connection conn(db);
 
     string schema_prefix = database.empty() ? "" : database + ".";
 
-    // Check if __pipeline__ schema exists
     auto schema_check = conn.Query(
         "SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name = '__pipeline__'");
     if (schema_check->HasError() || schema_check->RowCount() == 0 ||
         schema_check->GetValue(0, 0).GetValue<int64_t>() == 0) {
-        return; // Schema doesn't exist, nothing to hydrate
+        return;
     }
 
-    // Mark as initialized since schema exists
     {
         lock_guard<std::mutex> lock(mutex);
         initialized_databases.insert(database);
     }
 
-    // Load views
     auto views_result = conn.Query("SELECT name, query, comment, dependencies, is_materialized FROM " +
                                    QualifyTable(database, "views"));
     if (!views_result->HasError()) {
@@ -297,7 +288,6 @@ void PipelinePersistence::HydrateFromDatabase(const string &database, Materializ
             string deps_str = views_result->GetValue(3, row).ToString();
             bool is_materialized = views_result->GetValue(4, row).GetValue<bool>();
 
-            // Parse dependencies
             vector<string> depends_on;
             if (!deps_str.empty()) {
                 idx_t start = 0;
@@ -311,7 +301,6 @@ void PipelinePersistence::HydrateFromDatabase(const string &database, Materializ
                 }
             }
 
-            // Load constraints for this view
             vector<Expectation> expectations;
             auto constraints_result = conn.Query(
                 "SELECT constraint_name, expression, action FROM " +
@@ -337,16 +326,6 @@ void PipelinePersistence::HydrateFromDatabase(const string &database, Materializ
             catalog.CreateOrRefresh(name, query, comment, expectations, depends_on);
             if (is_materialized) {
                 catalog.MarkMaterialized(name);
-            }
-
-            // Load schedule for this view
-            auto sched_result = conn.Query(
-                "SELECT schedule_type, interval_value, interval_unit, cron_expression, paused FROM " +
-                QualifyTable(database, "schedules") +
-                " WHERE view_name = '" + EscapeSQL(name) + "'");
-            if (!sched_result->HasError() && sched_result->RowCount() > 0) {
-                // Schedule info is stored in the catalog definition directly
-                // The caller (extension init) should handle scheduler registration
             }
         }
     }

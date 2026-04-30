@@ -19,13 +19,6 @@ public:
     void PauseSchedule(const string &view_name);
     void ResumeSchedule(const string &view_name);
 
-    struct ScheduleInfo {
-        string name;
-        string schedule_description;
-        bool paused;
-    };
-    vector<ScheduleInfo> ListSchedules();
-
     static PipelineScheduler &Get(DatabaseInstance &db);
 
 private:

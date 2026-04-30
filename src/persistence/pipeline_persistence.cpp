@@ -28,9 +28,17 @@ pair<string, string> PipelinePersistence::ResolveQualifiedName(const string &qua
 
 void PipelinePersistence::EnsureInitialized(DatabaseInstance &db, const string &database) {
     lock_guard<std::mutex> lock(mutex);
-    // Always call CreateSchema — it uses IF NOT EXISTS so it's idempotent and cheap.
-    // We cannot cache by database name alone because the global singleton survives
-    // across different DatabaseInstance lifetimes (e.g. in test suites).
+
+    // Fast path: check if __pipeline__ schema already exists with a lightweight query
+    Connection check_conn(db);
+    string schema_prefix = database.empty() ? "" : database + ".";
+    auto result = check_conn.Query(
+        "SELECT 1 FROM information_schema.schemata WHERE schema_name = '__pipeline__'" +
+        (database.empty() ? string("") : " AND catalog_name = '" + database + "'"));
+    if (!result->HasError() && result->RowCount() > 0) {
+        return;
+    }
+
     CreateSchema(db, database);
 }
 
@@ -39,7 +47,10 @@ void PipelinePersistence::CreateSchema(DatabaseInstance &db, const string &datab
 
     string schema_prefix = database.empty() ? "" : database + ".";
 
-    conn.Query("CREATE SCHEMA IF NOT EXISTS " + schema_prefix + "__pipeline__");
+    auto schema_result = conn.Query("CREATE SCHEMA IF NOT EXISTS " + schema_prefix + "__pipeline__");
+    if (schema_result->HasError()) {
+        throw InvalidInputException("Failed to create __pipeline__ schema: %s", schema_result->GetError());
+    }
 
     conn.Query("CREATE TABLE IF NOT EXISTS " + QualifyTable(database, "views") + " ("
                "name VARCHAR PRIMARY KEY, "
@@ -105,11 +116,29 @@ void PipelinePersistence::PersistView(DatabaseInstance &db, const string &databa
         deps += depends_on[i];
     }
 
-    conn.Query("DELETE FROM " + QualifyTable(database, "views") + " WHERE name = '" + EscapeSQL(name) + "'");
-    conn.Query("INSERT INTO " + QualifyTable(database, "views") +
-               " (name, query, comment, dependencies, is_materialized) VALUES ('" +
-               EscapeSQL(name) + "', '" + EscapeSQL(query) + "', '" + EscapeSQL(comment) +
-               "', '" + EscapeSQL(deps) + "', false)");
+    conn.Query("BEGIN TRANSACTION");
+
+    // Check if view already exists to preserve created_at
+    string views_table = QualifyTable(database, "views");
+    auto existing = conn.Query("SELECT created_at FROM " + views_table +
+                               " WHERE name = '" + EscapeSQL(name) + "'");
+    bool is_update = !existing->HasError() && existing->RowCount() > 0;
+
+    conn.Query("DELETE FROM " + views_table + " WHERE name = '" + EscapeSQL(name) + "'");
+
+    if (is_update) {
+        // Preserve original created_at
+        string created_at = existing->GetValue(0, 0).ToString();
+        conn.Query("INSERT INTO " + views_table +
+                   " (name, query, comment, dependencies, is_materialized, created_at, updated_at) VALUES ('" +
+                   EscapeSQL(name) + "', '" + EscapeSQL(query) + "', '" + EscapeSQL(comment) +
+                   "', '" + EscapeSQL(deps) + "', false, '" + created_at + "', current_timestamp)");
+    } else {
+        conn.Query("INSERT INTO " + views_table +
+                   " (name, query, comment, dependencies, is_materialized) VALUES ('" +
+                   EscapeSQL(name) + "', '" + EscapeSQL(query) + "', '" + EscapeSQL(comment) +
+                   "', '" + EscapeSQL(deps) + "', false)");
+    }
 
     conn.Query("DELETE FROM " + QualifyTable(database, "constraints") + " WHERE view_name = '" + EscapeSQL(name) + "'");
     for (auto &exp : expectations) {
@@ -124,6 +153,8 @@ void PipelinePersistence::PersistView(DatabaseInstance &db, const string &databa
                    EscapeSQL(name) + "', '" + EscapeSQL(exp.name) + "', '" +
                    EscapeSQL(exp.expression) + "', '" + EscapeSQL(action_str) + "')");
     }
+
+    conn.Query("COMMIT");
 }
 
 void PipelinePersistence::PersistSchedule(DatabaseInstance &db, const string &database, const string &name,
@@ -204,6 +235,7 @@ void PipelinePersistence::CascadeDelete(DatabaseInstance &db, const string &data
     EnsureInitialized(db, database);
     Connection conn(db);
 
+    conn.Query("BEGIN TRANSACTION");
     conn.Query("DELETE FROM " + QualifyTable(database, "expectation_logs") +
                " WHERE view_name = '" + EscapeSQL(name) + "'");
     conn.Query("DELETE FROM " + QualifyTable(database, "run_logs") +
@@ -214,6 +246,7 @@ void PipelinePersistence::CascadeDelete(DatabaseInstance &db, const string &data
                " WHERE view_name = '" + EscapeSQL(name) + "'");
     conn.Query("DELETE FROM " + QualifyTable(database, "views") +
                " WHERE name = '" + EscapeSQL(name) + "'");
+    conn.Query("COMMIT");
 }
 
 int64_t PipelinePersistence::InsertRunLog(DatabaseInstance &db, const string &database,

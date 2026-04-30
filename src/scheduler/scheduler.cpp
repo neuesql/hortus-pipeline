@@ -61,36 +61,6 @@ void PipelineScheduler::ResumeSchedule(const string &view_name) {
     cv.notify_one();
 }
 
-vector<PipelineScheduler::ScheduleInfo> PipelineScheduler::ListSchedules() {
-    auto &persistence = PipelinePersistence::Get();
-    auto names = persistence.GetAllNames(db);
-    vector<ScheduleInfo> result;
-
-    for (auto &name : names) {
-        auto def = persistence.GetView(db, "", name);
-        if (def.schedule_type == 0) {
-            continue;
-        }
-        ScheduleInfo info;
-        info.name = name;
-        info.paused = def.schedule_paused;
-
-        switch (def.schedule_type) {
-        case 1:
-            info.schedule_description = "EVERY " + std::to_string(def.schedule_interval) + " " + def.schedule_interval_unit;
-            break;
-        case 2:
-            info.schedule_description = "CRON " + def.schedule_cron_expression;
-            break;
-        case 3:
-            info.schedule_description = "TRIGGER ON UPDATE";
-            break;
-        }
-        result.push_back(std::move(info));
-    }
-    return result;
-}
-
 std::chrono::system_clock::time_point PipelineScheduler::ComputeNextRun(const string &view_name) {
     auto &persistence = PipelinePersistence::Get();
     if (!persistence.Exists(db, "", view_name)) {

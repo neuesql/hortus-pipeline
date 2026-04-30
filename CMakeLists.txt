@@ -28,6 +28,8 @@ set(EXTENSION_SOURCES
     src/functions/pipeline_schedules.cpp
     src/functions/pipeline_expectations.cpp
     src/functions/explain_materialized_view.cpp
+    src/functions/pipeline_run_logs.cpp
+    src/functions/pipeline_expectation_logs.cpp
     src/scheduler/scheduler.cpp)
 
 build_static_extension(${TARGET_NAME} ${EXTENSION_SOURCES})

@@ -1,7 +1,7 @@
 #pragma once
 #include "duckdb.hpp"
 #include "duckdb/parser/parser_extension.hpp"
-#include "catalog/materialized_view_catalog.hpp"
+#include "persistence/pipeline_persistence.hpp"
 
 namespace duckdb {
 

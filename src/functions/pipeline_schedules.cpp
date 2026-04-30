@@ -4,6 +4,7 @@
 #include "duckdb/main/connection.hpp"
 #include "duckdb/common/string_util.hpp"
 #include "persistence/pipeline_persistence.hpp"
+#include "executor/materializer.hpp"
 #include "scheduler/scheduler.hpp"
 
 namespace duckdb {
@@ -134,13 +135,8 @@ static unique_ptr<GlobalTableFunctionState> FiresInit(ClientContext &context, Ta
                 continue;
             }
             try {
-                Connection refresh_conn(db);
-                auto result = refresh_conn.Query("REFRESH MATERIALIZED VIEW " + name);
-                if (result->HasError()) {
-                    state->results.push_back({name, "error: " + result->GetError()});
-                } else {
-                    state->results.push_back({name, "refreshed"});
-                }
+                Materializer::Materialize(context, name, "schedule");
+                state->results.push_back({name, "refreshed"});
             } catch (std::exception &e) {
                 state->results.push_back({name, string("error: ") + e.what()});
             }

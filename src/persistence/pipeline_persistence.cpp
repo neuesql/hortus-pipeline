@@ -54,7 +54,7 @@ void PipelinePersistence::CreateSchema(DatabaseInstance &db, const string &datab
 
     conn.Query("CREATE TABLE IF NOT EXISTS " + QualifyTable(database, "views") + " ("
                "name VARCHAR PRIMARY KEY, "
-               "query VARCHAR, "
+               "query VARCHAR NOT NULL, "
                "comment VARCHAR, "
                "dependencies VARCHAR, "
                "is_materialized BOOLEAN DEFAULT false, "
@@ -62,15 +62,15 @@ void PipelinePersistence::CreateSchema(DatabaseInstance &db, const string &datab
                "updated_at TIMESTAMP DEFAULT current_timestamp)");
 
     conn.Query("CREATE TABLE IF NOT EXISTS " + QualifyTable(database, "constraints") + " ("
-               "view_name VARCHAR, "
-               "constraint_name VARCHAR, "
-               "expression VARCHAR, "
-               "action VARCHAR, "
+               "view_name VARCHAR NOT NULL, "
+               "constraint_name VARCHAR NOT NULL, "
+               "expression VARCHAR NOT NULL, "
+               "action VARCHAR NOT NULL, "
                "PRIMARY KEY (view_name, constraint_name))");
 
     conn.Query("CREATE TABLE IF NOT EXISTS " + QualifyTable(database, "schedules") + " ("
                "view_name VARCHAR PRIMARY KEY, "
-               "schedule_type INTEGER, "
+               "schedule_type INTEGER NOT NULL, "
                "interval_value INTEGER, "
                "interval_unit VARCHAR, "
                "cron_expression VARCHAR, "
@@ -81,7 +81,7 @@ void PipelinePersistence::CreateSchema(DatabaseInstance &db, const string &datab
 
     conn.Query("CREATE TABLE IF NOT EXISTS " + QualifyTable(database, "run_logs") + " ("
                "run_id BIGINT DEFAULT nextval('" + QualifyTable(database, "run_seq") + "'), "
-               "view_name VARCHAR, "
+               "view_name VARCHAR NOT NULL, "
                "started_at TIMESTAMP DEFAULT current_timestamp, "
                "finished_at TIMESTAMP, "
                "success BOOLEAN, "
@@ -90,9 +90,9 @@ void PipelinePersistence::CreateSchema(DatabaseInstance &db, const string &datab
                "rows_affected BIGINT)");
 
     conn.Query("CREATE TABLE IF NOT EXISTS " + QualifyTable(database, "expectation_logs") + " ("
-               "run_id BIGINT, "
-               "view_name VARCHAR, "
-               "constraint_name VARCHAR, "
+               "run_id BIGINT NOT NULL, "
+               "view_name VARCHAR NOT NULL, "
+               "constraint_name VARCHAR NOT NULL, "
                "total_rows BIGINT, "
                "passed BIGINT, "
                "failed BIGINT, "

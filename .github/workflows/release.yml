@@ -31,27 +31,30 @@ jobs:
           run-id: ${{ github.event.workflow_run.id || github.run_id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Detect version from artifacts
-        id: version
+      - name: Detect versions from artifacts
+        id: versions
         run: |
-          # Extract version from artifact directory name (e.g. hortus_pipeline-v1.5.1-extension-linux_amd64)
-          VERSION=$(ls -d artifacts/hortus_pipeline-* | head -1 | sed 's/.*hortus_pipeline-\(v[0-9.]*\)-.*/\1/')
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "Detected version: $VERSION"
+          # Extract all unique versions from artifact directory names
+          VERSIONS=$(ls -d artifacts/hortus_pipeline-* | sed 's/.*hortus_pipeline-\(v[0-9.]*\)-.*/\1/' | sort -uV)
+          echo "Found versions: $VERSIONS"
+          # Latest version for the release tag
+          LATEST=$(echo "$VERSIONS" | tail -1)
+          echo "latest=$LATEST" >> "$GITHUB_OUTPUT"
+          echo "Latest version: $LATEST"
 
       - name: Create directory structure
         run: |
-          VERSION=${{ steps.version.outputs.version }}
-          mkdir -p "site/$VERSION"
           mkdir -p release_assets
           for dir in artifacts/hortus_pipeline-*; do
             [ -d "$dir" ] || continue
+            # Extract version and arch from directory name
+            version=$(echo "$dir" | sed 's/.*hortus_pipeline-\(v[0-9.]*\)-.*/\1/')
             arch=$(echo "$dir" | sed 's/.*extension-//')
-            mkdir -p "site/$VERSION/$arch"
+            mkdir -p "site/$version/$arch"
             for f in "$dir"/*.duckdb_extension; do
               [ -f "$f" ] || continue
-              cp "$f" "site/$VERSION/$arch/"
-              cp "$f" "release_assets/hortus_pipeline-${arch}.duckdb_extension"
+              cp "$f" "site/$version/$arch/"
+              cp "$f" "release_assets/hortus_pipeline-${version}-${arch}.duckdb_extension"
             done
           done
           echo "=== GitHub Pages structure ==="
@@ -72,12 +75,12 @@ jobs:
         id: deployment
         uses: actions/deploy-pages@v4
 
-      # Create GitHub Release (for visibility and manual download)
-      - name: Create or update GitHub Release
+      # Create GitHub Releases (one per version)
+      - name: Create or update GitHub Release (v1.5.1)
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.version.outputs.version }}
-          name: "Hortus Pipeline Extension (DuckDB ${{ steps.version.outputs.version }})"
+          tag_name: v1.5.1
+          name: "Hortus Pipeline Extension (DuckDB v1.5.1)"
           body: |
             ## Install
 
@@ -94,5 +97,29 @@ jobs:
             - Windows x86_64 (`windows_amd64`)
             - Windows MinGW (`windows_amd64_mingw`)
             - WebAssembly (`wasm_mvp`, `wasm_eh`, `wasm_threads`)
-          files: release_assets/*
+          files: release_assets/hortus_pipeline-v1.5.1-*
+          make_latest: false
+
+      - name: Create or update GitHub Release (v1.5.2)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.5.2
+          name: "Hortus Pipeline Extension (DuckDB v1.5.2)"
+          body: |
+            ## Install
+
+            ```sql
+            INSTALL hortus_pipeline FROM 'https://neuesql.github.io/hortus-pipeline';
+            LOAD hortus_pipeline;
+            ```
+
+            ## Platforms
+            - Linux x86_64 (`linux_amd64`)
+            - Linux ARM64 (`linux_arm64`)
+            - macOS x86_64 (`osx_amd64`)
+            - macOS ARM64 (`osx_arm64`)
+            - Windows x86_64 (`windows_amd64`)
+            - Windows MinGW (`windows_amd64_mingw`)
+            - WebAssembly (`wasm_mvp`, `wasm_eh`, `wasm_threads`)
+          files: release_assets/hortus_pipeline-v1.5.2-*
           make_latest: true

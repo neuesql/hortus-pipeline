@@ -1,0 +1,36 @@
+# name: test/sql/persistence.test
+# group: [hortus_pipeline]
+
+require hortus_pipeline
+
+# Before any pipeline creation, __pipeline__ schema should NOT exist
+query I
+SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name = '__pipeline__';
+----
+0
+
+# Create a pipeline view -- should trigger lazy init
+statement ok
+CREATE OR REFRESH MATERIALIZED VIEW persist_test AS SELECT 1 AS id, 'hello' AS name;
+
+# Now __pipeline__ schema should exist
+query I
+SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name = '__pipeline__';
+----
+1
+
+# __pipeline__.views should have our view
+query II
+SELECT name, query FROM __pipeline__.views WHERE name = 'persist_test';
+----
+persist_test	SELECT 1 AS id, 'hello' AS name
+
+# Clean up
+statement ok
+DROP MATERIALIZED VIEW persist_test;
+
+# View should be gone from __pipeline__.views
+query I
+SELECT COUNT(*) FROM __pipeline__.views WHERE name = 'persist_test';
+----
+0

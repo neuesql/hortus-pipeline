@@ -31,17 +31,26 @@ jobs:
           run-id: ${{ github.event.workflow_run.id || github.run_id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Detect version from artifacts
+        id: version
+        run: |
+          # Extract version from artifact directory name (e.g. hortus_pipeline-v1.5.1-extension-linux_amd64)
+          VERSION=$(ls -d artifacts/hortus_pipeline-* | head -1 | sed 's/.*hortus_pipeline-\(v[0-9.]*\)-.*/\1/')
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Detected version: $VERSION"
+
       - name: Create directory structure
         run: |
-          mkdir -p site/v1.5.2
+          VERSION=${{ steps.version.outputs.version }}
+          mkdir -p "site/$VERSION"
           mkdir -p release_assets
           for dir in artifacts/hortus_pipeline-*; do
             [ -d "$dir" ] || continue
             arch=$(echo "$dir" | sed 's/.*extension-//')
-            mkdir -p "site/v1.5.2/$arch"
+            mkdir -p "site/$VERSION/$arch"
             for f in "$dir"/*.duckdb_extension; do
               [ -f "$f" ] || continue
-              cp "$f" "site/v1.5.2/$arch/"
+              cp "$f" "site/$VERSION/$arch/"
               cp "$f" "release_assets/hortus_pipeline-${arch}.duckdb_extension"
             done
           done
@@ -64,11 +73,11 @@ jobs:
         uses: actions/deploy-pages@v4
 
       # Create GitHub Release (for visibility and manual download)
-      - name: Create or update GitHub Release v1.5.2
+      - name: Create or update GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.5.2
-          name: "Hortus Pipeline Extension (DuckDB v1.5.2)"
+          tag_name: ${{ steps.version.outputs.version }}
+          name: "Hortus Pipeline Extension (DuckDB ${{ steps.version.outputs.version }})"
           body: |
             ## Install
 

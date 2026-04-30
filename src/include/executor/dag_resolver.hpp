@@ -1,16 +1,13 @@
 #pragma once
 #include "duckdb.hpp"
-#include "catalog/materialized_view_catalog.hpp"
+#include "persistence/pipeline_persistence.hpp"
 
 namespace duckdb {
 
 class DAGResolver {
 public:
-    // Topological sort of all MVs
-    static vector<string> Resolve(const MaterializedViewCatalog &catalog);
-    // Topological sort of target + its upstream deps only
-    static vector<string> ResolveFor(const MaterializedViewCatalog &catalog, const string &target);
-    // Extract table references from SQL (FROM/JOIN table patterns, skip functions)
+    static vector<string> Resolve(DatabaseInstance &db, const string &database = "");
+    static vector<string> ResolveFor(DatabaseInstance &db, const string &target, const string &database = "");
     static vector<string> ExtractDependencies(const string &query);
 };
 

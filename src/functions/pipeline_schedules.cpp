@@ -3,7 +3,7 @@
 #include "duckdb/main/client_context.hpp"
 #include "duckdb/main/connection.hpp"
 #include "duckdb/common/string_util.hpp"
-#include "catalog/materialized_view_catalog.hpp"
+#include "persistence/pipeline_persistence.hpp"
 #include "scheduler/scheduler.hpp"
 
 namespace duckdb {
@@ -16,7 +16,7 @@ struct PipelineSchedulesBindData : public TableFunctionData {};
 
 struct PipelineSchedulesGlobalState : public GlobalTableFunctionState {
     idx_t offset = 0;
-    vector<PipelineScheduler::ScheduleInfo> schedules;
+    unique_ptr<MaterializedQueryResult> result;
 };
 
 static unique_ptr<FunctionData> PipelineSchedulesBind(ClientContext &context, TableFunctionBindInput &input,
@@ -25,10 +25,8 @@ static unique_ptr<FunctionData> PipelineSchedulesBind(ClientContext &context, Ta
 
     names.emplace_back("name");
     return_types.emplace_back(LogicalType::VARCHAR);
-
     names.emplace_back("schedule");
     return_types.emplace_back(LogicalType::VARCHAR);
-
     names.emplace_back("paused");
     return_types.emplace_back(LogicalType::BOOLEAN);
 
@@ -37,27 +35,50 @@ static unique_ptr<FunctionData> PipelineSchedulesBind(ClientContext &context, Ta
 
 static unique_ptr<GlobalTableFunctionState> PipelineSchedulesInit(ClientContext &context, TableFunctionInitInput &input) {
     auto state = make_uniq<PipelineSchedulesGlobalState>();
+
     auto &db = DatabaseInstance::GetDatabase(context);
-    auto &scheduler = PipelineScheduler::Get(db);
-    state->schedules = scheduler.ListSchedules();
+    auto &persistence = PipelinePersistence::Get();
+    persistence.EnsureInitialized(db);
+
+    Connection conn(db);
+    state->result = conn.Query(
+        "SELECT view_name, schedule_type, interval_value, interval_unit, cron_expression, paused "
+        "FROM __pipeline__.schedules");
+
     return std::move(state);
 }
 
 static void PipelineSchedulesFunc(ClientContext &context, TableFunctionInput &data_p, DataChunk &output) {
     auto &state = data_p.global_state->Cast<PipelineSchedulesGlobalState>();
 
-    if (state.offset >= state.schedules.size()) {
+    if (!state.result || state.result->HasError() || state.offset >= state.result->RowCount()) {
         return;
     }
 
     idx_t count = 0;
     idx_t max_count = STANDARD_VECTOR_SIZE;
 
-    while (state.offset < state.schedules.size() && count < max_count) {
-        auto &info = state.schedules[state.offset];
-        output.SetValue(0, count, Value(info.name));
-        output.SetValue(1, count, Value(info.schedule_description));
-        output.SetValue(2, count, Value::BOOLEAN(info.paused));
+    while (state.offset < state.result->RowCount() && count < max_count) {
+        string name = state.result->GetValue(0, state.offset).ToString();
+        int stype = state.result->GetValue(1, state.offset).GetValue<int>();
+        string schedule_desc;
+        switch (stype) {
+        case 1:
+            schedule_desc = "EVERY " + state.result->GetValue(2, state.offset).ToString() + " " +
+                            state.result->GetValue(3, state.offset).ToString();
+            break;
+        case 2:
+            schedule_desc = "CRON " + state.result->GetValue(4, state.offset).ToString();
+            break;
+        case 3:
+            schedule_desc = "TRIGGER ON UPDATE";
+            break;
+        }
+        bool paused = state.result->GetValue(5, state.offset).GetValue<bool>();
+
+        output.SetValue(0, count, Value(name));
+        output.SetValue(1, count, Value(schedule_desc));
+        output.SetValue(2, count, Value::BOOLEAN(paused));
         state.offset++;
         count++;
     }
@@ -72,64 +93,65 @@ TableFunction GetPipelineSchedulesFunction() {
 }
 
 //===--------------------------------------------------------------------===//
-// pipeline_check_schedules() TableFunction
+// pipeline_fires() TableFunction (renamed from pipeline_check_schedules)
 //===--------------------------------------------------------------------===//
 
-struct CheckSchedulesBindData : public TableFunctionData {};
+struct FiresBindData : public TableFunctionData {};
 
-struct CheckSchedulesGlobalState : public GlobalTableFunctionState {
+struct FiresGlobalState : public GlobalTableFunctionState {
     idx_t offset = 0;
-    vector<pair<string, string>> results; // name, status
+    vector<pair<string, string>> results;
 };
 
-static unique_ptr<FunctionData> CheckSchedulesBind(ClientContext &context, TableFunctionBindInput &input,
-                                                    vector<LogicalType> &return_types, vector<string> &names) {
-    auto data = make_uniq<CheckSchedulesBindData>();
+static unique_ptr<FunctionData> FiresBind(ClientContext &context, TableFunctionBindInput &input,
+                                           vector<LogicalType> &return_types, vector<string> &names) {
+    auto data = make_uniq<FiresBindData>();
 
     names.emplace_back("name");
     return_types.emplace_back(LogicalType::VARCHAR);
-
     names.emplace_back("status");
     return_types.emplace_back(LogicalType::VARCHAR);
 
     return std::move(data);
 }
 
-static unique_ptr<GlobalTableFunctionState> CheckSchedulesInit(ClientContext &context, TableFunctionInitInput &input) {
-    auto state = make_uniq<CheckSchedulesGlobalState>();
+static unique_ptr<GlobalTableFunctionState> FiresInit(ClientContext &context, TableFunctionInitInput &input) {
+    auto state = make_uniq<FiresGlobalState>();
 
     auto &db = DatabaseInstance::GetDatabase(context);
-    auto &catalog = MaterializedViewCatalog::Get(db);
-    auto names = catalog.GetAllNames();
+    auto &persistence = PipelinePersistence::Get();
+    persistence.EnsureInitialized(db);
 
-    for (auto &name : names) {
-        auto &def = catalog.Get(name);
-        if (def.schedule_type == 0) {
-            continue;
-        }
-        if (def.schedule_paused) {
-            state->results.push_back({name, "paused"});
-            continue;
-        }
-        // For check_schedules, we refresh all scheduled views immediately
-        try {
-            Connection conn(db);
-            auto result = conn.Query("REFRESH MATERIALIZED VIEW " + name);
-            if (result->HasError()) {
-                state->results.push_back({name, "error: " + result->GetError()});
-            } else {
-                state->results.push_back({name, "refreshed"});
+    Connection conn(db);
+    auto sched_result = conn.Query("SELECT view_name, paused FROM __pipeline__.schedules");
+    if (!sched_result->HasError()) {
+        for (idx_t i = 0; i < sched_result->RowCount(); i++) {
+            string name = sched_result->GetValue(0, i).ToString();
+            bool paused = sched_result->GetValue(1, i).GetValue<bool>();
+
+            if (paused) {
+                state->results.push_back({name, "paused"});
+                continue;
             }
-        } catch (std::exception &e) {
-            state->results.push_back({name, string("error: ") + e.what()});
+            try {
+                Connection refresh_conn(db);
+                auto result = refresh_conn.Query("REFRESH MATERIALIZED VIEW " + name);
+                if (result->HasError()) {
+                    state->results.push_back({name, "error: " + result->GetError()});
+                } else {
+                    state->results.push_back({name, "refreshed"});
+                }
+            } catch (std::exception &e) {
+                state->results.push_back({name, string("error: ") + e.what()});
+            }
         }
     }
 
     return std::move(state);
 }
 
-static void CheckSchedulesFunc(ClientContext &context, TableFunctionInput &data_p, DataChunk &output) {
-    auto &state = data_p.global_state->Cast<CheckSchedulesGlobalState>();
+static void FiresFunc(ClientContext &context, TableFunctionInput &data_p, DataChunk &output) {
+    auto &state = data_p.global_state->Cast<FiresGlobalState>();
 
     if (state.offset >= state.results.size()) {
         return;
@@ -149,9 +171,9 @@ static void CheckSchedulesFunc(ClientContext &context, TableFunctionInput &data_
     output.SetCardinality(count);
 }
 
-TableFunction GetPipelineCheckSchedulesFunction() {
-    TableFunction func("pipeline_check_schedules", {},
-                       CheckSchedulesFunc, CheckSchedulesBind, CheckSchedulesInit);
+TableFunction GetPipelineFiresFunction() {
+    TableFunction func("pipeline_fires", {},
+                       FiresFunc, FiresBind, FiresInit);
     return func;
 }
 

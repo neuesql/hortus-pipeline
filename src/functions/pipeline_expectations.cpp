@@ -1,21 +1,17 @@
 #include "duckdb.hpp"
 #include "duckdb/function/table_function.hpp"
 #include "duckdb/main/client_context.hpp"
+#include "duckdb/main/connection.hpp"
 #include "duckdb/common/string_util.hpp"
-#include "catalog/materialized_view_catalog.hpp"
+#include "persistence/pipeline_persistence.hpp"
 
 namespace duckdb {
-
-//===--------------------------------------------------------------------===//
-// pipeline_expectations() TableFunction
-//===--------------------------------------------------------------------===//
 
 struct PipelineExpectationsBindData : public TableFunctionData {};
 
 struct PipelineExpectationsGlobalState : public GlobalTableFunctionState {
-    idx_t view_offset = 0;
-    idx_t metric_offset = 0;
-    vector<string> names;
+    idx_t offset = 0;
+    unique_ptr<MaterializedQueryResult> result;
 };
 
 static unique_ptr<FunctionData> PipelineExpectationsBind(ClientContext &context, TableFunctionBindInput &input,
@@ -24,19 +20,14 @@ static unique_ptr<FunctionData> PipelineExpectationsBind(ClientContext &context,
 
     names.emplace_back("view_name");
     return_types.emplace_back(LogicalType::VARCHAR);
-
     names.emplace_back("constraint_name");
     return_types.emplace_back(LogicalType::VARCHAR);
-
     names.emplace_back("total_rows");
     return_types.emplace_back(LogicalType::BIGINT);
-
     names.emplace_back("passed");
     return_types.emplace_back(LogicalType::BIGINT);
-
     names.emplace_back("failed");
     return_types.emplace_back(LogicalType::BIGINT);
-
     names.emplace_back("action");
     return_types.emplace_back(LogicalType::VARCHAR);
 
@@ -47,8 +38,17 @@ static unique_ptr<GlobalTableFunctionState> PipelineExpectationsInit(ClientConte
     auto state = make_uniq<PipelineExpectationsGlobalState>();
 
     auto &db = DatabaseInstance::GetDatabase(context);
-    auto &catalog = MaterializedViewCatalog::Get(db);
-    state->names = catalog.GetAllNames();
+    auto &persistence = PipelinePersistence::Get();
+    persistence.EnsureInitialized(db);
+
+    Connection conn(db);
+    // Get latest run per view, then join to get expectation logs
+    state->result = conn.Query(
+        "SELECT e.view_name, e.constraint_name, e.total_rows, e.passed, e.failed, e.action "
+        "FROM __pipeline__.expectation_logs e "
+        "INNER JOIN (SELECT view_name, MAX(run_id) AS max_run_id "
+        "            FROM __pipeline__.run_logs GROUP BY view_name) r "
+        "ON e.view_name = r.view_name AND e.run_id = r.max_run_id");
 
     return std::move(state);
 }
@@ -56,41 +56,19 @@ static unique_ptr<GlobalTableFunctionState> PipelineExpectationsInit(ClientConte
 static void PipelineExpectationsFunc(ClientContext &context, TableFunctionInput &data_p, DataChunk &output) {
     auto &state = data_p.global_state->Cast<PipelineExpectationsGlobalState>();
 
-    auto &db = DatabaseInstance::GetDatabase(context);
-    auto &catalog = MaterializedViewCatalog::Get(db);
+    if (!state.result || state.result->HasError() || state.offset >= state.result->RowCount()) {
+        return;
+    }
 
     idx_t count = 0;
     idx_t max_count = STANDARD_VECTOR_SIZE;
 
-    while (state.view_offset < state.names.size() && count < max_count) {
-        auto &name = state.names[state.view_offset];
-        auto &def = catalog.Get(name);
-        auto &metrics = def.last_expectation_metrics;
-
-        if (metrics.empty()) {
-            state.view_offset++;
-            state.metric_offset = 0;
-            continue;
+    while (state.offset < state.result->RowCount() && count < max_count) {
+        for (idx_t col = 0; col < 6; col++) {
+            output.SetValue(col, count, state.result->GetValue(col, state.offset));
         }
-
-        while (state.metric_offset < metrics.size() && count < max_count) {
-            auto &m = metrics[state.metric_offset];
-
-            output.SetValue(0, count, Value(name));
-            output.SetValue(1, count, Value(m.constraint_name));
-            output.SetValue(2, count, Value::BIGINT(m.total_rows));
-            output.SetValue(3, count, Value::BIGINT(m.passed));
-            output.SetValue(4, count, Value::BIGINT(m.failed));
-            output.SetValue(5, count, Value(m.action));
-
-            state.metric_offset++;
-            count++;
-        }
-
-        if (state.metric_offset >= metrics.size()) {
-            state.view_offset++;
-            state.metric_offset = 0;
-        }
+        state.offset++;
+        count++;
     }
 
     output.SetCardinality(count);

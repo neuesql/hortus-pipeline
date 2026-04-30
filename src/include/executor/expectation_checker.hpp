@@ -1,6 +1,6 @@
 #pragma once
 #include "duckdb.hpp"
-#include "catalog/materialized_view_catalog.hpp"
+#include "persistence/pipeline_persistence.hpp"
 
 namespace duckdb {
 

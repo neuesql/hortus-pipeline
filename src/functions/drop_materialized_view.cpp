@@ -3,15 +3,10 @@
 #include "duckdb/main/client_context.hpp"
 #include "duckdb/main/connection.hpp"
 #include "duckdb/common/string_util.hpp"
-#include "catalog/materialized_view_catalog.hpp"
-#include "scheduler/scheduler.hpp"
 #include "persistence/pipeline_persistence.hpp"
+#include "scheduler/scheduler.hpp"
 
 namespace duckdb {
-
-//===--------------------------------------------------------------------===//
-// DROP MATERIALIZED VIEW TableFunction
-//===--------------------------------------------------------------------===//
 
 struct DropMVBindData : public TableFunctionData {
     string view_name;
@@ -43,22 +38,21 @@ static void DropMVFunc(ClientContext &context, TableFunctionInput &data_p, DataC
     }
 
     auto &db = DatabaseInstance::GetDatabase(context);
-    auto &catalog = MaterializedViewCatalog::Get(db);
+    auto &persistence = PipelinePersistence::Get();
+    auto [database, unqualified_name] = PipelinePersistence::ResolveQualifiedName(bind_data.view_name);
 
-    // Remove from scheduler if scheduled
+    // Check existence
+    if (!persistence.Exists(db, database, unqualified_name)) {
+        throw InvalidInputException("Materialized view '%s' not found", bind_data.view_name);
+    }
+
+    // Remove from scheduler
     PipelineScheduler::Get(db).RemoveSchedule(bind_data.view_name);
 
-    // Remove all persistence rows for this view before dropping
-    auto resolved = PipelinePersistence::ResolveQualifiedName(bind_data.view_name);
-    auto &database = resolved.first;
-    auto &unqualified_name = resolved.second;
-    auto &persistence = PipelinePersistence::Get();
+    // Cascade delete from __pipeline__ tables
     persistence.CascadeDelete(db, database, unqualified_name);
 
-    // Remove from our catalog (throws if not found)
-    catalog.Drop(bind_data.view_name);
-
-    // Drop the underlying materialized table using a separate connection
+    // Drop the underlying materialized table
     Connection conn(db);
     auto result = conn.Query("DROP TABLE IF EXISTS " + bind_data.view_name);
     if (result->HasError()) {

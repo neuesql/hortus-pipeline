@@ -2,10 +2,9 @@
 #include "duckdb/function/table_function.hpp"
 #include "duckdb/main/client_context.hpp"
 #include "duckdb/common/string_util.hpp"
-#include "catalog/materialized_view_catalog.hpp"
+#include "persistence/pipeline_persistence.hpp"
 #include "executor/materializer.hpp"
 #include "scheduler/scheduler.hpp"
-#include "persistence/pipeline_persistence.hpp"
 
 namespace duckdb {
 
@@ -18,7 +17,6 @@ static vector<Expectation> DeserializeExpectations(const string &serialized) {
     if (serialized.empty()) {
         return result;
     }
-    // Format: name:::expression:::action|||name:::expression:::action
     auto entries = StringUtil::Split(serialized, "|||");
     for (auto &entry : entries) {
         auto parts = StringUtil::Split(entry, ":::");
@@ -95,55 +93,44 @@ static void CreateMVFunc(ClientContext &context, TableFunctionInput &data_p, Dat
     auto deps = DeserializeDependsOn(bind_data.serialized_deps);
 
     auto &db = DatabaseInstance::GetDatabase(context);
-    auto &catalog = MaterializedViewCatalog::Get(db);
+    auto &persistence = PipelinePersistence::Get();
+    auto [database, unqualified_name] = PipelinePersistence::ResolveQualifiedName(bind_data.view_name);
 
-    // Register in catalog
-    catalog.CreateOrRefresh(bind_data.view_name, bind_data.query,
+    // Persist view definition to __pipeline__ tables
+    persistence.PersistView(db, database, unqualified_name, bind_data.query,
                             bind_data.comment, expectations, deps);
 
     // Store schedule info if present
     if (!bind_data.serialized_schedule.empty()) {
-        auto &def = const_cast<MaterializedViewDefinition &>(catalog.Get(bind_data.view_name));
+        int sched_type = 0;
+        int sched_interval = 0;
+        string sched_unit, sched_cron;
+
         if (StringUtil::StartsWith(bind_data.serialized_schedule, "EVERY:")) {
             auto parts = StringUtil::Split(bind_data.serialized_schedule, ":");
             if (parts.size() >= 3) {
-                def.schedule_type = 1; // EVERY
-                def.schedule_interval = std::stoi(parts[1]);
-                def.schedule_interval_unit = parts[2];
+                sched_type = 1;
+                sched_interval = std::stoi(parts[1]);
+                sched_unit = parts[2];
             }
         } else if (StringUtil::StartsWith(bind_data.serialized_schedule, "CRON:")) {
-            def.schedule_type = 2; // CRON
-            def.schedule_cron_expression = bind_data.serialized_schedule.substr(5);
+            sched_type = 2;
+            sched_cron = bind_data.serialized_schedule.substr(5);
         } else if (bind_data.serialized_schedule == "ON_UPDATE") {
-            def.schedule_type = 3; // ON_UPDATE
+            sched_type = 3;
         }
-    }
 
-    // Register with scheduler if scheduled
-    if (!bind_data.serialized_schedule.empty()) {
+        persistence.PersistSchedule(db, database, unqualified_name,
+                                     sched_type, sched_interval, sched_unit, sched_cron);
+
+        // Register with scheduler
         auto &scheduler = PipelineScheduler::Get(db);
-        scheduler.RemoveSchedule(bind_data.view_name); // remove old schedule if replacing
+        scheduler.RemoveSchedule(bind_data.view_name);
         scheduler.AddSchedule(bind_data.view_name);
     }
 
-    // Persist to __pipeline__ tables
-    auto resolved = PipelinePersistence::ResolveQualifiedName(bind_data.view_name);
-    auto &database = resolved.first;
-    auto &unqualified_name = resolved.second;
-    auto &persistence = PipelinePersistence::Get();
-    persistence.PersistView(db, database, unqualified_name, bind_data.query,
-                            bind_data.comment, expectations, deps);
-
-    // Persist schedule if present
-    if (!bind_data.serialized_schedule.empty()) {
-        auto &def = catalog.Get(bind_data.view_name);
-        persistence.PersistSchedule(db, database, unqualified_name,
-                                     def.schedule_type, def.schedule_interval,
-                                     def.schedule_interval_unit, def.schedule_cron_expression);
-    }
-
     // Materialize
-    Materializer::Materialize(context, catalog, bind_data.view_name);
+    Materializer::Materialize(context, bind_data.view_name);
 
     output.SetValue(0, 0, Value("Materialized view '" + bind_data.view_name + "' created successfully"));
     output.SetCardinality(1);

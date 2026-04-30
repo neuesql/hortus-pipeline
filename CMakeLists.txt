@@ -15,7 +15,6 @@ include_directories(src/include)
 
 set(EXTENSION_SOURCES
     src/hortus_pipeline_extension.cpp
-    src/catalog/materialized_view_catalog.cpp
     src/persistence/pipeline_persistence.cpp
     src/parser/pipeline_parser.cpp
     src/executor/expectation_checker.cpp

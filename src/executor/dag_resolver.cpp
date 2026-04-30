@@ -9,7 +9,6 @@
 namespace duckdb {
 
 vector<string> DAGResolver::ExtractDependencies(const string &query) {
-    // Skip known function names
     static const unordered_set<string> skip_names = {
         "read_csv", "read_parquet", "read_json", "range",
         "generate_series", "values", "unnest", "read_csv_auto"
@@ -18,11 +17,6 @@ vector<string> DAGResolver::ExtractDependencies(const string &query) {
     vector<string> deps;
     unordered_set<string> seen;
 
-    // Find FROM table_name and JOIN table_name patterns
-    // We use a simple regex approach
-    string upper_query = StringUtil::Upper(query);
-
-    // Pattern: FROM or JOIN followed by a table name (identifier)
     std::regex pattern(R"((?:FROM|JOIN)\s+([a-zA-Z_][a-zA-Z0-9_]*))", std::regex::icase);
 
     auto begin = std::sregex_iterator(query.begin(), query.end(), pattern);
@@ -32,7 +26,6 @@ vector<string> DAGResolver::ExtractDependencies(const string &query) {
         string table_name = (*it)[1].str();
         string lower_name = StringUtil::Lower(table_name);
 
-        // Skip known functions and already-seen names
         if (skip_names.count(lower_name) > 0) {
             continue;
         }
@@ -46,12 +39,12 @@ vector<string> DAGResolver::ExtractDependencies(const string &query) {
     return deps;
 }
 
-vector<string> DAGResolver::Resolve(const MaterializedViewCatalog &catalog) {
-    auto all_names = catalog.GetAllNames();
+vector<string> DAGResolver::Resolve(DatabaseInstance &db, const string &database) {
+    auto &persistence = PipelinePersistence::Get();
+    auto all_names = persistence.GetAllNames(db, database);
     unordered_set<string> mv_set(all_names.begin(), all_names.end());
 
-    // Build adjacency list: edges[A] = {B, C} means A depends on B, C
-    unordered_map<string, vector<string>> dependents; // dependency -> list of MVs that depend on it
+    unordered_map<string, vector<string>> dependents;
     unordered_map<string, int> in_degree;
 
     for (auto &name : all_names) {
@@ -59,7 +52,7 @@ vector<string> DAGResolver::Resolve(const MaterializedViewCatalog &catalog) {
     }
 
     for (auto &name : all_names) {
-        auto &def = catalog.Get(name);
+        auto def = persistence.GetView(db, database, name);
         vector<string> deps;
         if (!def.explicit_dependencies.empty()) {
             deps = def.explicit_dependencies;
@@ -75,7 +68,6 @@ vector<string> DAGResolver::Resolve(const MaterializedViewCatalog &catalog) {
         }
     }
 
-    // Kahn's algorithm
     std::queue<string> q;
     for (auto &name : all_names) {
         if (in_degree[name] == 0) {
@@ -104,18 +96,18 @@ vector<string> DAGResolver::Resolve(const MaterializedViewCatalog &catalog) {
     return result;
 }
 
-vector<string> DAGResolver::ResolveFor(const MaterializedViewCatalog &catalog, const string &target) {
-    auto all_names = catalog.GetAllNames();
+vector<string> DAGResolver::ResolveFor(DatabaseInstance &db, const string &target, const string &database) {
+    auto &persistence = PipelinePersistence::Get();
+    auto all_names = persistence.GetAllNames(db, database);
     unordered_set<string> mv_set(all_names.begin(), all_names.end());
 
     if (mv_set.count(target) == 0) {
         throw InvalidInputException("Materialized view '%s' not found", target);
     }
 
-    // Build dependency map: name -> set of MV dependencies
     unordered_map<string, vector<string>> dep_map;
     for (auto &name : all_names) {
-        auto &def = catalog.Get(name);
+        auto def = persistence.GetView(db, database, name);
         vector<string> deps;
         if (!def.explicit_dependencies.empty()) {
             deps = def.explicit_dependencies;
@@ -131,7 +123,6 @@ vector<string> DAGResolver::ResolveFor(const MaterializedViewCatalog &catalog, c
         dep_map[name] = mv_deps;
     }
 
-    // BFS to find all transitive upstream deps of target
     unordered_set<string> needed;
     std::queue<string> bfs;
     bfs.push(target);
@@ -147,8 +138,7 @@ vector<string> DAGResolver::ResolveFor(const MaterializedViewCatalog &catalog, c
         }
     }
 
-    // Get full topo sort and filter to needed
-    auto full_order = Resolve(catalog);
+    auto full_order = Resolve(db, database);
     vector<string> result;
     for (auto &name : full_order) {
         if (needed.count(name) > 0) {

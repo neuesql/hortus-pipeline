@@ -3,7 +3,7 @@
 #include "duckdb/main/client_context.hpp"
 #include "duckdb/main/connection.hpp"
 #include "duckdb/common/string_util.hpp"
-#include "catalog/materialized_view_catalog.hpp"
+#include "persistence/pipeline_persistence.hpp"
 #include "executor/dag_resolver.hpp"
 
 namespace duckdb {

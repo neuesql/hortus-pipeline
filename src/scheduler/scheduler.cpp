@@ -1,5 +1,5 @@
 #include "scheduler/scheduler.hpp"
-#include "catalog/materialized_view_catalog.hpp"
+#include "persistence/pipeline_persistence.hpp"
 #include "duckdb/main/connection.hpp"
 
 namespace duckdb {
@@ -9,7 +9,9 @@ static std::mutex global_scheduler_mutex;
 
 PipelineScheduler &PipelineScheduler::Get(DatabaseInstance &db) {
     lock_guard<std::mutex> lock(global_scheduler_mutex);
-    if (!global_scheduler_instance) {
+    if (!global_scheduler_instance || &global_scheduler_instance->db != &db) {
+        // Destroy old scheduler (stops its thread) and create new one for this db
+        global_scheduler_instance.reset();
         global_scheduler_instance = make_uniq<PipelineScheduler>(db);
     }
     return *global_scheduler_instance;
@@ -33,11 +35,11 @@ PipelineScheduler::~PipelineScheduler() {
 void PipelineScheduler::AddSchedule(const string &view_name) {
     lock_guard<std::mutex> lock(mutex);
     if (active_views.count(view_name)) {
-        return; // Already scheduled
+        return;
     }
     auto next = ComputeNextRun(view_name);
     if (next == std::chrono::system_clock::time_point{}) {
-        return; // No valid schedule (ON_UPDATE or NONE)
+        return;
     }
     task_queue.push({view_name, next});
     active_views.insert(view_name);
@@ -47,47 +49,41 @@ void PipelineScheduler::AddSchedule(const string &view_name) {
 void PipelineScheduler::RemoveSchedule(const string &view_name) {
     lock_guard<std::mutex> lock(mutex);
     active_views.erase(view_name);
-    // Task will be skipped when it fires since it won't be in active_views
     cv.notify_one();
 }
 
 void PipelineScheduler::PauseSchedule(const string &view_name) {
     lock_guard<std::mutex> lock(mutex);
-    // Catalog handles the paused flag; scheduler checks it at fire time
 }
 
 void PipelineScheduler::ResumeSchedule(const string &view_name) {
     lock_guard<std::mutex> lock(mutex);
-    // If view is active but was paused, it will resume at next check
     cv.notify_one();
 }
 
 vector<PipelineScheduler::ScheduleInfo> PipelineScheduler::ListSchedules() {
-    // Read from catalog, not from scheduler internal state
-    auto &catalog = MaterializedViewCatalog::Get(db);
-    auto names = catalog.GetAllNames();
+    auto &persistence = PipelinePersistence::Get();
+    auto names = persistence.GetAllNames(db);
     vector<ScheduleInfo> result;
 
     for (auto &name : names) {
-        auto &def = catalog.Get(name);
+        auto def = persistence.GetView(db, "", name);
         if (def.schedule_type == 0) {
-            continue; // No schedule
+            continue;
         }
         ScheduleInfo info;
         info.name = name;
         info.paused = def.schedule_paused;
 
         switch (def.schedule_type) {
-        case 1: // EVERY
+        case 1:
             info.schedule_description = "EVERY " + std::to_string(def.schedule_interval) + " " + def.schedule_interval_unit;
             break;
-        case 2: // CRON
+        case 2:
             info.schedule_description = "CRON " + def.schedule_cron_expression;
             break;
-        case 3: // ON_UPDATE
+        case 3:
             info.schedule_description = "TRIGGER ON UPDATE";
-            break;
-        default:
             break;
         }
         result.push_back(std::move(info));
@@ -96,11 +92,11 @@ vector<PipelineScheduler::ScheduleInfo> PipelineScheduler::ListSchedules() {
 }
 
 std::chrono::system_clock::time_point PipelineScheduler::ComputeNextRun(const string &view_name) {
-    auto &catalog = MaterializedViewCatalog::Get(db);
-    if (!catalog.Exists(view_name)) {
+    auto &persistence = PipelinePersistence::Get();
+    if (!persistence.Exists(db, "", view_name)) {
         return {};
     }
-    auto &def = catalog.Get(view_name);
+    auto def = persistence.GetView(db, "", view_name);
 
     if (def.schedule_type == 1) { // EVERY
         auto now = std::chrono::system_clock::now();
@@ -110,13 +106,10 @@ std::chrono::system_clock::time_point PipelineScheduler::ComputeNextRun(const st
         else if (unit == "HOUR") seconds *= 3600;
         else if (unit == "DAY") seconds *= 86400;
         else if (unit == "WEEK") seconds *= 604800;
-        // SECOND is already correct
         return now + std::chrono::seconds(seconds);
     } else if (def.schedule_type == 2) { // CRON
-        // Simplified: treat as 1-hour interval for basic cron support
         return std::chrono::system_clock::now() + std::chrono::hours(1);
     }
-    // ON_UPDATE (3) or NONE (0): no time-based scheduling
     return {};
 }
 
@@ -147,23 +140,20 @@ void PipelineScheduler::RunScheduler() {
             continue;
         }
 
-        // Pop the task
         task_queue.pop();
 
-        // Check if still active
         if (active_views.find(top.view_name) == active_views.end()) {
             continue;
         }
 
         // Check if paused
-        auto &catalog = MaterializedViewCatalog::Get(db);
-        if (!catalog.Exists(top.view_name)) {
+        auto &persistence = PipelinePersistence::Get();
+        if (!persistence.Exists(db, "", top.view_name)) {
             active_views.erase(top.view_name);
             continue;
         }
-        auto &def = catalog.Get(top.view_name);
+        auto def = persistence.GetView(db, "", top.view_name);
         if (def.schedule_paused) {
-            // Reschedule for later check
             auto next = ComputeNextRun(top.view_name);
             if (next != std::chrono::system_clock::time_point{}) {
                 task_queue.push({top.view_name, next});
@@ -171,18 +161,16 @@ void PipelineScheduler::RunScheduler() {
             continue;
         }
 
-        // Release lock before executing
         lock.unlock();
 
         // Execute refresh
         try {
             Connection conn(db);
             conn.Query("REFRESH MATERIALIZED VIEW " + top.view_name);
+            persistence.UpdateScheduleLastRun(db, "", top.view_name);
         } catch (...) {
-            // Log error but don't crash the scheduler
         }
 
-        // Reschedule
         lock.lock();
         if (active_views.find(top.view_name) != active_views.end()) {
             auto next = ComputeNextRun(top.view_name);

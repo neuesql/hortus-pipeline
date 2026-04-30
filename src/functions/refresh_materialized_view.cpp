@@ -2,7 +2,7 @@
 #include "duckdb/function/table_function.hpp"
 #include "duckdb/main/client_context.hpp"
 #include "duckdb/common/string_util.hpp"
-#include "catalog/materialized_view_catalog.hpp"
+#include "persistence/pipeline_persistence.hpp"
 #include "executor/materializer.hpp"
 #include "executor/dag_resolver.hpp"
 
@@ -44,12 +44,11 @@ static void RefreshMVFunc(ClientContext &context, TableFunctionInput &data_p, Da
     }
 
     auto &db = DatabaseInstance::GetDatabase(context);
-    auto &catalog = MaterializedViewCatalog::Get(db);
 
     // Resolve dependencies and materialize in order
-    auto order = DAGResolver::ResolveFor(catalog, bind_data.view_name);
+    auto order = DAGResolver::ResolveFor(db, bind_data.view_name);
     for (auto &name : order) {
-        Materializer::Materialize(context, catalog, name);
+        Materializer::Materialize(context, name, "manual");
     }
 
     output.SetValue(0, 0, Value("Refreshed materialized view '" + bind_data.view_name + "' successfully"));
@@ -99,10 +98,7 @@ static void RefreshAllMVFunc(ClientContext &context, TableFunctionInput &data_p,
         return;
     }
 
-    auto &db = DatabaseInstance::GetDatabase(context);
-    auto &catalog = MaterializedViewCatalog::Get(db);
-
-    Materializer::MaterializeAll(context, catalog, bind_data.best_effort);
+    Materializer::MaterializeAll(context, bind_data.best_effort);
 
     output.SetValue(0, 0, Value("All materialized views refreshed successfully"));
     output.SetCardinality(1);

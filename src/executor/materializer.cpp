@@ -8,50 +8,74 @@
 
 namespace duckdb {
 
-void Materializer::Materialize(ClientContext &context, MaterializedViewCatalog &catalog, const string &view_name) {
-    auto &def = catalog.Get(view_name);
-
-    // Apply expectations (may throw for FAIL_UPDATE)
-    vector<ExpectationMetric> metrics;
-    string final_query = ExpectationChecker::ApplyExpectations(context, def.query, def.expectations, metrics);
-
-    // Execute CREATE OR REPLACE TABLE using a separate connection
+void Materializer::Materialize(ClientContext &context, const string &view_name, const string &trigger) {
     auto &db = DatabaseInstance::GetDatabase(context);
-    Connection conn(db);
-    string create_sql = "CREATE OR REPLACE TABLE " + view_name + " AS (" + final_query + ")";
-    auto result = conn.Query(create_sql);
-    if (result->HasError()) {
-        throw InvalidInputException("Failed to materialize view '%s': %s", view_name, result->GetError());
-    }
+    auto &persistence = PipelinePersistence::Get();
+    auto [database, unqualified_name] = PipelinePersistence::ResolveQualifiedName(view_name);
 
-    // Store metrics
-    if (!metrics.empty()) {
-        catalog.SetExpectationMetrics(view_name, metrics);
-    }
+    auto def = persistence.GetView(db, database, unqualified_name);
 
-    catalog.MarkMaterialized(view_name);
+    // Start run log
+    int64_t run_id = persistence.InsertRunLog(db, database, unqualified_name, trigger);
+
+    try {
+        // Apply expectations (may throw for FAIL_UPDATE)
+        vector<ExpectationMetric> metrics;
+        string final_query = ExpectationChecker::ApplyExpectations(context, def.query, def.expectations, metrics);
+
+        // Execute CREATE OR REPLACE TABLE
+        Connection conn(db);
+        string create_sql = "CREATE OR REPLACE TABLE " + view_name + " AS (" + final_query + ")";
+        auto result = conn.Query(create_sql);
+        if (result->HasError()) {
+            throw InvalidInputException("Failed to materialize view '%s': %s", view_name, result->GetError());
+        }
+
+        // Count rows
+        auto count_result = conn.Query("SELECT COUNT(*) FROM " + view_name);
+        int64_t row_count = 0;
+        if (!count_result->HasError()) {
+            row_count = count_result->GetValue(0, 0).GetValue<int64_t>();
+        }
+
+        // Write expectation logs
+        for (auto &m : metrics) {
+            persistence.InsertExpectationLog(db, database, run_id, unqualified_name,
+                                              m.constraint_name, m.total_rows,
+                                              m.passed, m.failed, m.action);
+        }
+
+        // Complete run log
+        persistence.CompleteRunLog(db, database, run_id, true, "", row_count);
+        persistence.UpdateViewMaterialized(db, database, unqualified_name);
+
+    } catch (std::exception &e) {
+        persistence.CompleteRunLog(db, database, run_id, false, e.what(), 0);
+        throw;
+    }
 }
 
-void Materializer::MaterializeAll(ClientContext &context, MaterializedViewCatalog &catalog, bool best_effort) {
-    auto order = DAGResolver::Resolve(catalog);
+void Materializer::MaterializeAll(ClientContext &context, bool best_effort, const string &trigger) {
+    auto &db = DatabaseInstance::GetDatabase(context);
+    auto order = DAGResolver::Resolve(db);
 
     if (!best_effort) {
         for (auto &name : order) {
-            Materialize(context, catalog, name);
+            Materialize(context, name, trigger);
         }
         return;
     }
 
-    // Best-effort mode: skip dependents of failed nodes, continue with independent branches
+    // Best-effort mode
+    auto &persistence = PipelinePersistence::Get();
+    auto all_names = persistence.GetAllNames(db);
+    unordered_set<string> mv_set(all_names.begin(), all_names.end());
     unordered_set<string> failed_set;
     vector<string> errors;
 
-    // Build dependency map to check if any ancestor failed
-    auto all_names = catalog.GetAllNames();
-    unordered_set<string> mv_set(all_names.begin(), all_names.end());
     unordered_map<string, vector<string>> dep_map;
     for (auto &name : all_names) {
-        auto &def = catalog.Get(name);
+        auto def = persistence.GetView(db, "", name);
         vector<string> deps;
         if (!def.explicit_dependencies.empty()) {
             deps = def.explicit_dependencies;
@@ -68,7 +92,6 @@ void Materializer::MaterializeAll(ClientContext &context, MaterializedViewCatalo
     }
 
     for (auto &name : order) {
-        // Check if any dependency has failed
         bool skip = false;
         for (auto &dep : dep_map[name]) {
             if (failed_set.count(dep) > 0) {
@@ -83,7 +106,7 @@ void Materializer::MaterializeAll(ClientContext &context, MaterializedViewCatalo
         }
 
         try {
-            Materialize(context, catalog, name);
+            Materialize(context, name, trigger);
         } catch (std::exception &e) {
             failed_set.insert(name);
             errors.push_back("Failed to materialize '" + name + "': " + string(e.what()));

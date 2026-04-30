@@ -1,6 +1,7 @@
 #include "persistence/pipeline_persistence.hpp"
 #include "duckdb/main/connection.hpp"
 #include "duckdb/common/string_util.hpp"
+#include "duckdb/common/exception.hpp"
 
 namespace duckdb {
 
@@ -259,70 +260,99 @@ void PipelinePersistence::InsertExpectationLog(DatabaseInstance &db, const strin
                EscapeSQL(action) + "')");
 }
 
-void PipelinePersistence::HydrateFromDatabase(DatabaseInstance &db, const string &database,
-                                               MaterializedViewCatalog &catalog) {
+bool PipelinePersistence::Exists(DatabaseInstance &db, const string &database, const string &name) {
+    EnsureInitialized(db, database);
+    Connection conn(db);
+    auto result = conn.Query("SELECT COUNT(*) FROM " + QualifyTable(database, "views") +
+                             " WHERE name = '" + EscapeSQL(name) + "'");
+    if (result->HasError() || result->RowCount() == 0) {
+        return false;
+    }
+    return result->GetValue(0, 0).GetValue<int64_t>() > 0;
+}
+
+MaterializedViewDefinition PipelinePersistence::GetView(DatabaseInstance &db, const string &database,
+                                                         const string &name) {
+    EnsureInitialized(db, database);
     Connection conn(db);
 
-    string schema_prefix = database.empty() ? "" : database + ".";
-
-    auto schema_check = conn.Query(
-        "SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name = '__pipeline__'");
-    if (schema_check->HasError() || schema_check->RowCount() == 0 ||
-        schema_check->GetValue(0, 0).GetValue<int64_t>() == 0) {
-        return;
+    auto result = conn.Query("SELECT name, query, comment, dependencies, is_materialized FROM " +
+                             QualifyTable(database, "views") +
+                             " WHERE name = '" + EscapeSQL(name) + "'");
+    if (result->HasError() || result->RowCount() == 0) {
+        throw InvalidInputException("Materialized view '%s' not found", name);
     }
 
-    auto views_result = conn.Query("SELECT name, query, comment, dependencies, is_materialized FROM " +
-                                   QualifyTable(database, "views"));
-    if (!views_result->HasError()) {
-        for (idx_t row = 0; row < views_result->RowCount(); row++) {
-            string name = views_result->GetValue(0, row).ToString();
-            string query = views_result->GetValue(1, row).ToString();
-            string comment = views_result->GetValue(2, row).ToString();
-            string deps_str = views_result->GetValue(3, row).ToString();
-            bool is_materialized = views_result->GetValue(4, row).GetValue<bool>();
+    MaterializedViewDefinition def;
+    def.name = result->GetValue(0, 0).ToString();
+    def.query = result->GetValue(1, 0).ToString();
+    def.comment = result->GetValue(2, 0).IsNull() ? "" : result->GetValue(2, 0).ToString();
+    string deps_str = result->GetValue(3, 0).IsNull() ? "" : result->GetValue(3, 0).ToString();
+    def.is_materialized = result->GetValue(4, 0).GetValue<bool>();
 
-            vector<string> depends_on;
-            if (!deps_str.empty()) {
-                idx_t start = 0;
-                for (idx_t i = 0; i <= deps_str.size(); i++) {
-                    if (i == deps_str.size() || deps_str[i] == ',') {
-                        if (i > start) {
-                            depends_on.push_back(deps_str.substr(start, i - start));
-                        }
-                        start = i + 1;
-                    }
+    // Parse dependencies
+    if (!deps_str.empty()) {
+        idx_t start = 0;
+        for (idx_t i = 0; i <= deps_str.size(); i++) {
+            if (i == deps_str.size() || deps_str[i] == ',') {
+                if (i > start) {
+                    def.explicit_dependencies.push_back(deps_str.substr(start, i - start));
                 }
-            }
-
-            vector<Expectation> expectations;
-            auto constraints_result = conn.Query(
-                "SELECT constraint_name, expression, action FROM " +
-                QualifyTable(database, "constraints") +
-                " WHERE view_name = '" + EscapeSQL(name) + "'");
-            if (!constraints_result->HasError()) {
-                for (idx_t crow = 0; crow < constraints_result->RowCount(); crow++) {
-                    Expectation exp;
-                    exp.name = constraints_result->GetValue(0, crow).ToString();
-                    exp.expression = constraints_result->GetValue(1, crow).ToString();
-                    string action_str = constraints_result->GetValue(2, crow).ToString();
-                    if (action_str == "DROP ROW") {
-                        exp.action = ExpectationAction::DROP_ROW;
-                    } else if (action_str == "FAIL UPDATE") {
-                        exp.action = ExpectationAction::FAIL_UPDATE;
-                    } else {
-                        exp.action = ExpectationAction::WARN;
-                    }
-                    expectations.push_back(std::move(exp));
-                }
-            }
-
-            catalog.CreateOrRefresh(name, query, comment, expectations, depends_on);
-            if (is_materialized) {
-                catalog.MarkMaterialized(name);
+                start = i + 1;
             }
         }
     }
+
+    // Load expectations
+    auto constraints_result = conn.Query(
+        "SELECT constraint_name, expression, action FROM " +
+        QualifyTable(database, "constraints") +
+        " WHERE view_name = '" + EscapeSQL(name) + "'");
+    if (!constraints_result->HasError()) {
+        for (idx_t row = 0; row < constraints_result->RowCount(); row++) {
+            Expectation exp;
+            exp.name = constraints_result->GetValue(0, row).ToString();
+            exp.expression = constraints_result->GetValue(1, row).ToString();
+            string action_str = constraints_result->GetValue(2, row).ToString();
+            if (action_str == "DROP ROW") {
+                exp.action = ExpectationAction::DROP_ROW;
+            } else if (action_str == "FAIL UPDATE") {
+                exp.action = ExpectationAction::FAIL_UPDATE;
+            } else {
+                exp.action = ExpectationAction::WARN;
+            }
+            def.expectations.push_back(std::move(exp));
+        }
+    }
+
+    // Load schedule
+    auto sched_result = conn.Query(
+        "SELECT schedule_type, interval_value, interval_unit, cron_expression, paused FROM " +
+        QualifyTable(database, "schedules") +
+        " WHERE view_name = '" + EscapeSQL(name) + "'");
+    if (!sched_result->HasError() && sched_result->RowCount() > 0) {
+        def.schedule_type = sched_result->GetValue(0, 0).GetValue<int>();
+        def.schedule_interval = sched_result->GetValue(1, 0).IsNull() ? 0 : sched_result->GetValue(1, 0).GetValue<int>();
+        def.schedule_interval_unit = sched_result->GetValue(2, 0).IsNull() ? "" : sched_result->GetValue(2, 0).ToString();
+        def.schedule_cron_expression = sched_result->GetValue(3, 0).IsNull() ? "" : sched_result->GetValue(3, 0).ToString();
+        def.schedule_paused = sched_result->GetValue(4, 0).GetValue<bool>();
+    }
+
+    return def;
+}
+
+vector<string> PipelinePersistence::GetAllNames(DatabaseInstance &db, const string &database) {
+    EnsureInitialized(db, database);
+    Connection conn(db);
+    vector<string> names;
+
+    auto result = conn.Query("SELECT name FROM " + QualifyTable(database, "views"));
+    if (!result->HasError()) {
+        for (idx_t row = 0; row < result->RowCount(); row++) {
+            names.push_back(result->GetValue(0, row).ToString());
+        }
+    }
+    return names;
 }
 
 } // namespace duckdb

@@ -13,7 +13,7 @@ namespace duckdb {
 // Forward declarations
 TableFunction GetPipelineStatusFunction();
 TableFunction GetPipelineSchedulesFunction();
-TableFunction GetPipelineCheckSchedulesFunction();
+TableFunction GetPipelineFiresFunction();
 TableFunction GetPipelineExpectationsFunction();
 
 static void LoadInternal(ExtensionLoader &loader) {
@@ -21,15 +21,13 @@ static void LoadInternal(ExtensionLoader &loader) {
 	auto &config = DBConfig::GetConfig(db);
 	ParserExtension::Register(config, PipelineParserExtension());
 
-	// Enable parser override so DROP/ALTER MATERIALIZED VIEW can be intercepted
-	// before DuckDB's native parser (which accepts the syntax but fails at transform)
 	Connection conn(db);
 	conn.Query("SET allow_parser_override_extension='fallback'");
 
 	// Register table functions
 	loader.RegisterFunction(GetPipelineStatusFunction());
 	loader.RegisterFunction(GetPipelineSchedulesFunction());
-	loader.RegisterFunction(GetPipelineCheckSchedulesFunction());
+	loader.RegisterFunction(GetPipelineFiresFunction());
 	loader.RegisterFunction(GetPipelineExpectationsFunction());
 
 	// Start the background scheduler

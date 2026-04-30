@@ -1,0 +1,130 @@
+#
+# Deploy extension binaries to GitHub Pages for DuckDB extension repository
+#
+# This workflow runs after the main build pipeline completes successfully.
+# It downloads the built artifacts and publishes them to GitHub Pages in
+# the directory structure DuckDB expects for custom extension repositories.
+#
+# Users can then install the extension with:
+#   INSTALL hortus_pipeline FROM 'https://neuesql.github.io/hortus-pipeline';
+#   LOAD hortus_pipeline;
+#
+name: Deploy to GitHub Pages
+on:
+  workflow_run:
+    workflows: ["Main Extension Distribution Pipeline"]
+    types: [completed]
+    branches: [main, duckdb-v1.5.2]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get DuckDB version
+        id: version
+        run: |
+          cd duckdb
+          DUCKDB_VERSION=$(git describe --tags)
+          echo "duckdb_version=${DUCKDB_VERSION}" >> $GITHUB_OUTPUT
+          echo "DuckDB version: ${DUCKDB_VERSION}"
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/artifacts
+          run-id: ${{ github.event.workflow_run.id || github.run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Organize for DuckDB extension repository
+        run: |
+          DUCKDB_VERSION="${{ steps.version.outputs.duckdb_version }}"
+          REPO_DIR="/tmp/pages"
+          mkdir -p "${REPO_DIR}"
+
+          # Process each artifact
+          for artifact_dir in /tmp/artifacts/*/; do
+            if [ ! -d "$artifact_dir" ]; then
+              continue
+            fi
+
+            artifact_name=$(basename "$artifact_dir")
+            echo "Processing artifact: ${artifact_name}"
+
+            # Extract architecture from artifact name
+            # Format: hortus_pipeline-v1.5.1-extension-<arch>
+            arch=$(echo "$artifact_name" | sed 's/.*-extension-//')
+
+            if [ -z "$arch" ]; then
+              echo "  Skipping (no arch found)"
+              continue
+            fi
+
+            # Create versioned path: /<duckdb_version>/<arch>/
+            version_dir="${REPO_DIR}/${DUCKDB_VERSION}/${arch}"
+            mkdir -p "${version_dir}"
+
+            # Also create latest path
+            latest_dir="${REPO_DIR}/latest/${arch}"
+            mkdir -p "${latest_dir}"
+
+            # Copy extension files
+            for ext_file in "${artifact_dir}"*; do
+              if [ -f "$ext_file" ]; then
+                cp "$ext_file" "${version_dir}/"
+                cp "$ext_file" "${latest_dir}/"
+                echo "  Copied $(basename $ext_file) -> ${arch}"
+              fi
+            done
+          done
+
+          # Create index page
+          cat > "${REPO_DIR}/index.html" << 'HTMLEOF'
+          <!DOCTYPE html>
+          <html>
+          <head><title>Hortus Pipeline - DuckDB Extension Repository</title></head>
+          <body>
+          <h1>Hortus Pipeline</h1>
+          <p>DuckDB extension for declarative data pipelines.</p>
+          <h2>Installation</h2>
+          <pre>
+          INSTALL hortus_pipeline FROM 'https://neuesql.github.io/hortus-pipeline';
+          LOAD hortus_pipeline;
+          </pre>
+          <p><a href="https://github.com/neuesql/hortus-pipeline">GitHub Repository</a></p>
+          </body>
+          </html>
+          HTMLEOF
+
+          echo "Repository structure:"
+          find "${REPO_DIR}" -type f | head -50
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: /tmp/pages
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

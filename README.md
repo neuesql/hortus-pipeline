@@ -735,25 +735,24 @@ Build outputs:
 
 ## Installation
 
+**From the extension repository (recommended):**
+
+```sql
+-- Install from GitHub Pages repository
+INSTALL hortus_pipeline FROM 'https://neuesql.github.io/hortus-pipeline';
+LOAD hortus_pipeline;
+```
+
 **From build directory:**
 
 ```sh
 # Use the bundled DuckDB binary (extension auto-loaded)
 ./build/release/duckdb
 
-# Or load into any DuckDB v1.5.1 CLI
+# Or load into any DuckDB CLI
 duckdb -unsigned
 ```
 
 ```sql
 LOAD '/path/to/hortus_pipeline.duckdb_extension';
-```
-
-**From a custom repository:**
-
-```sql
-SET allow_unsigned_extensions = true;
-SET custom_extension_repository = '<your-bucket-url>/latest';
-INSTALL hortus_pipeline;
-LOAD hortus_pipeline;
 ```

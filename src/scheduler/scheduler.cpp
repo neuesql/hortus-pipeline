@@ -10,7 +10,6 @@ static std::mutex global_scheduler_mutex;
 PipelineScheduler &PipelineScheduler::Get(DatabaseInstance &db) {
     lock_guard<std::mutex> lock(global_scheduler_mutex);
     if (!global_scheduler_instance || &global_scheduler_instance->db != &db) {
-        // Destroy old scheduler (stops its thread) and create new one for this db
         global_scheduler_instance.reset();
         global_scheduler_instance = make_uniq<PipelineScheduler>(db);
     }
@@ -37,11 +36,12 @@ void PipelineScheduler::AddSchedule(const string &view_name) {
     if (active_views.count(view_name)) {
         return;
     }
-    auto next = ComputeNextRun(view_name);
+    auto [database, name] = PipelinePersistence::ResolveQualifiedName(view_name);
+    auto next = ComputeNextRun(database, name);
     if (next == std::chrono::system_clock::time_point{}) {
         return;
     }
-    task_queue.push({view_name, next});
+    task_queue.push({view_name, database, name, next});
     active_views.insert(view_name);
     cv.notify_one();
 }
@@ -61,12 +61,13 @@ void PipelineScheduler::ResumeSchedule(const string &view_name) {
     cv.notify_one();
 }
 
-std::chrono::system_clock::time_point PipelineScheduler::ComputeNextRun(const string &view_name) {
+std::chrono::system_clock::time_point PipelineScheduler::ComputeNextRun(const string &database,
+                                                                         const string &name) {
     auto &persistence = PipelinePersistence::Get();
-    if (!persistence.Exists(db, "", view_name)) {
+    if (!persistence.Exists(db, database, name)) {
         return {};
     }
-    auto def = persistence.GetView(db, "", view_name);
+    auto def = persistence.GetView(db, database, name);
 
     if (def.schedule_type == 1) { // EVERY
         auto now = std::chrono::system_clock::now();
@@ -116,17 +117,17 @@ void PipelineScheduler::RunScheduler() {
             continue;
         }
 
-        // Check if paused
+        // Check if paused (use stored database qualifier)
         auto &persistence = PipelinePersistence::Get();
-        if (!persistence.Exists(db, "", top.view_name)) {
+        if (!persistence.Exists(db, top.database, top.name)) {
             active_views.erase(top.view_name);
             continue;
         }
-        auto def = persistence.GetView(db, "", top.view_name);
+        auto def = persistence.GetView(db, top.database, top.name);
         if (def.schedule_paused) {
-            auto next = ComputeNextRun(top.view_name);
+            auto next = ComputeNextRun(top.database, top.name);
             if (next != std::chrono::system_clock::time_point{}) {
-                task_queue.push({top.view_name, next});
+                task_queue.push({top.view_name, top.database, top.name, next});
             }
             continue;
         }
@@ -137,15 +138,15 @@ void PipelineScheduler::RunScheduler() {
         try {
             Connection conn(db);
             conn.Query("REFRESH MATERIALIZED VIEW " + top.view_name);
-            persistence.UpdateScheduleLastRun(db, "", top.view_name);
+            persistence.UpdateScheduleLastRun(db, top.database, top.name);
         } catch (...) {
         }
 
         lock.lock();
         if (active_views.find(top.view_name) != active_views.end()) {
-            auto next = ComputeNextRun(top.view_name);
+            auto next = ComputeNextRun(top.database, top.name);
             if (next != std::chrono::system_clock::time_point{}) {
-                task_queue.push({top.view_name, next});
+                task_queue.push({top.view_name, top.database, top.name, next});
             }
         }
     }

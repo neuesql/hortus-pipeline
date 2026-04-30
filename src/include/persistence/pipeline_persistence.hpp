@@ -88,6 +88,9 @@ public:
     MaterializedViewDefinition GetView(DatabaseInstance &db, const string &database, const string &name);
     vector<string> GetAllNames(DatabaseInstance &db, const string &database = "");
 
+    // Multi-database: find all databases that have a __pipeline__ schema
+    vector<string> GetAllPipelineDatabases(DatabaseInstance &db);
+
     // Utilities
     static pair<string, string> ResolveQualifiedName(const string &qualified_name);
     static string QualifyTable(const string &database, const string &table);

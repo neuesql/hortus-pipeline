@@ -39,12 +39,23 @@ static unique_ptr<GlobalTableFunctionState> PipelineSchedulesInit(ClientContext 
 
     auto &db = DatabaseInstance::GetDatabase(context);
     auto &persistence = PipelinePersistence::Get();
-    persistence.EnsureInitialized(db);
+
+    auto databases = persistence.GetAllPipelineDatabases(db);
+    if (databases.empty()) {
+        persistence.EnsureInitialized(db);
+        databases.push_back("");
+    }
+
+    string query;
+    for (idx_t i = 0; i < databases.size(); i++) {
+        if (i > 0) query += " UNION ALL ";
+        string table = PipelinePersistence::QualifyTable(
+            databases[i] == "memory" ? "" : databases[i], "schedules");
+        query += "SELECT view_name, schedule_type, interval_value, interval_unit, cron_expression, paused FROM " + table;
+    }
 
     Connection conn(db);
-    state->result = conn.Query(
-        "SELECT view_name, schedule_type, interval_value, interval_unit, cron_expression, paused "
-        "FROM __pipeline__.schedules");
+    state->result = conn.Query(query);
 
     return std::move(state);
 }
@@ -121,10 +132,24 @@ static unique_ptr<GlobalTableFunctionState> FiresInit(ClientContext &context, Ta
 
     auto &db = DatabaseInstance::GetDatabase(context);
     auto &persistence = PipelinePersistence::Get();
-    persistence.EnsureInitialized(db);
+
+    auto databases = persistence.GetAllPipelineDatabases(db);
+    if (databases.empty()) {
+        persistence.EnsureInitialized(db);
+        databases.push_back("");
+    }
+
+    // Build UNION ALL for schedules across all databases
+    string query;
+    for (idx_t i = 0; i < databases.size(); i++) {
+        if (i > 0) query += " UNION ALL ";
+        string table = PipelinePersistence::QualifyTable(
+            databases[i] == "memory" ? "" : databases[i], "schedules");
+        query += "SELECT view_name, paused FROM " + table;
+    }
 
     Connection conn(db);
-    auto sched_result = conn.Query("SELECT view_name, paused FROM __pipeline__.schedules");
+    auto sched_result = conn.Query(query);
     if (!sched_result->HasError()) {
         for (idx_t i = 0; i < sched_result->RowCount(); i++) {
             string name = sched_result->GetValue(0, i).ToString();

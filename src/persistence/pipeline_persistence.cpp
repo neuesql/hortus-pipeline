@@ -388,4 +388,22 @@ vector<string> PipelinePersistence::GetAllNames(DatabaseInstance &db, const stri
     return names;
 }
 
+vector<string> PipelinePersistence::GetAllPipelineDatabases(DatabaseInstance &db) {
+    Connection conn(db);
+    vector<string> databases;
+
+    auto result = conn.Query(
+        "SELECT DISTINCT catalog_name FROM information_schema.schemata "
+        "WHERE schema_name = '__pipeline__'");
+    if (!result->HasError()) {
+        for (idx_t row = 0; row < result->RowCount(); row++) {
+            string db_name = result->GetValue(0, row).ToString();
+            // DuckDB uses "memory" for the default in-memory catalog or the file name
+            // Treat the default catalog as empty string for our QualifyTable logic
+            databases.push_back(db_name);
+        }
+    }
+    return databases;
+}
+
 } // namespace duckdb

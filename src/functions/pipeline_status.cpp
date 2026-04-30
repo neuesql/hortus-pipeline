@@ -38,10 +38,25 @@ static unique_ptr<GlobalTableFunctionState> PipelineStatusInit(ClientContext &co
 
     auto &db = DatabaseInstance::GetDatabase(context);
     auto &persistence = PipelinePersistence::Get();
-    persistence.EnsureInitialized(db);
+
+    // Query across all databases that have __pipeline__ schemas
+    auto databases = persistence.GetAllPipelineDatabases(db);
+    if (databases.empty()) {
+        persistence.EnsureInitialized(db);
+        databases.push_back("");
+    }
+
+    // Build UNION ALL query
+    string query;
+    for (idx_t i = 0; i < databases.size(); i++) {
+        if (i > 0) query += " UNION ALL ";
+        string table = PipelinePersistence::QualifyTable(
+            databases[i] == "memory" ? "" : databases[i], "views");
+        query += "SELECT name, query, dependencies, is_materialized, comment FROM " + table;
+    }
 
     Connection conn(db);
-    state->result = conn.Query("SELECT name, query, dependencies, is_materialized, comment FROM __pipeline__.views");
+    state->result = conn.Query(query);
 
     return std::move(state);
 }

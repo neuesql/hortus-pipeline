@@ -42,10 +42,24 @@ static unique_ptr<GlobalTableFunctionState> PipelineRunLogsInit(ClientContext &c
 
     auto &db = DatabaseInstance::GetDatabase(context);
     auto &persistence = PipelinePersistence::Get();
-    persistence.EnsureInitialized(db);
+
+    auto databases = persistence.GetAllPipelineDatabases(db);
+    if (databases.empty()) {
+        persistence.EnsureInitialized(db);
+        databases.push_back("");
+    }
+
+    string query;
+    for (idx_t i = 0; i < databases.size(); i++) {
+        if (i > 0) query += " UNION ALL ";
+        string table = PipelinePersistence::QualifyTable(
+            databases[i] == "memory" ? "" : databases[i], "run_logs");
+        query += "SELECT run_id, view_name, started_at, finished_at, success, error_message, \"trigger\", rows_affected FROM " + table;
+    }
+    query += " ORDER BY run_id";
 
     Connection conn(db);
-    state->result = conn.Query("SELECT run_id, view_name, started_at, finished_at, success, error_message, \"trigger\", rows_affected FROM __pipeline__.run_logs ORDER BY run_id");
+    state->result = conn.Query(query);
 
     return std::move(state);
 }

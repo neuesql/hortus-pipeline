@@ -39,16 +39,28 @@ static unique_ptr<GlobalTableFunctionState> PipelineExpectationsInit(ClientConte
 
     auto &db = DatabaseInstance::GetDatabase(context);
     auto &persistence = PipelinePersistence::Get();
-    persistence.EnsureInitialized(db);
+
+    auto databases = persistence.GetAllPipelineDatabases(db);
+    if (databases.empty()) {
+        persistence.EnsureInitialized(db);
+        databases.push_back("");
+    }
+
+    string query;
+    for (idx_t i = 0; i < databases.size(); i++) {
+        if (i > 0) query += " UNION ALL ";
+        string db_prefix = databases[i] == "memory" ? "" : databases[i];
+        string el = PipelinePersistence::QualifyTable(db_prefix, "expectation_logs");
+        string rl = PipelinePersistence::QualifyTable(db_prefix, "run_logs");
+        query += "SELECT e.view_name, e.constraint_name, e.total_rows, e.passed, e.failed, e.action "
+                 "FROM " + el + " e "
+                 "INNER JOIN (SELECT view_name, MAX(run_id) AS max_run_id "
+                 "            FROM " + rl + " GROUP BY view_name) r "
+                 "ON e.view_name = r.view_name AND e.run_id = r.max_run_id";
+    }
 
     Connection conn(db);
-    // Get latest run per view, then join to get expectation logs
-    state->result = conn.Query(
-        "SELECT e.view_name, e.constraint_name, e.total_rows, e.passed, e.failed, e.action "
-        "FROM __pipeline__.expectation_logs e "
-        "INNER JOIN (SELECT view_name, MAX(run_id) AS max_run_id "
-        "            FROM __pipeline__.run_logs GROUP BY view_name) r "
-        "ON e.view_name = r.view_name AND e.run_id = r.max_run_id");
+    state->result = conn.Query(query);
 
     return std::move(state);
 }

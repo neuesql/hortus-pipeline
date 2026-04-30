@@ -19,9 +19,9 @@ enum class AlterAction { SET_QUERY, ADD_CONSTRAINT, DROP_CONSTRAINT, PAUSE_SCHED
 
 enum class ScheduleType {
 	NONE,
-	EVERY,       // SCHEDULE EVERY 1 HOUR
-	CRON,        // SCHEDULE CRON '...'
-	ON_UPDATE    // SCHEDULE TRIGGER ON UPDATE
+	EVERY,    // SCHEDULE EVERY 1 HOUR
+	CRON,     // SCHEDULE CRON '...'
+	ON_UPDATE // SCHEDULE TRIGGER ON UPDATE
 };
 
 struct PipelineParseData : public ParserExtensionParseData {

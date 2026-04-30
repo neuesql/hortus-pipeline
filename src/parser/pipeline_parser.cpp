@@ -139,8 +139,8 @@ static idx_t FindFirstASAfter(const string &input, idx_t start_pos) {
 			paren_depth++;
 		} else if (c == ')') {
 			paren_depth--;
-		} else if (paren_depth == 0 && std::isspace(static_cast<unsigned char>(upper[i])) &&
-		           i + 3 < upper.size() && upper[i + 1] == 'A' && upper[i + 2] == 'S' &&
+		} else if (paren_depth == 0 && std::isspace(static_cast<unsigned char>(upper[i])) && i + 3 < upper.size() &&
+		           upper[i + 1] == 'A' && upper[i + 2] == 'S' &&
 		           std::isspace(static_cast<unsigned char>(upper[i + 3]))) {
 			return (idx_t)(i + 4); // Position after "<ws>AS<ws>"
 		}
@@ -287,11 +287,17 @@ static unique_ptr<PipelineParseData> ParseCreateOrRefresh(const string &raw_quer
 				}
 				string unit = StringUtil::Upper(tokens[pos]);
 				// Normalize plural forms
-				if (unit == "SECONDS") unit = "SECOND";
-				else if (unit == "MINUTES") unit = "MINUTE";
-				else if (unit == "HOURS") unit = "HOUR";
-				else if (unit == "DAYS") unit = "DAY";
-				else if (unit == "WEEKS") unit = "WEEK";
+				if (unit == "SECONDS") {
+					unit = "SECOND";
+				} else if (unit == "MINUTES") {
+					unit = "MINUTE";
+				} else if (unit == "HOURS") {
+					unit = "HOUR";
+				} else if (unit == "DAYS") {
+					unit = "DAY";
+				} else if (unit == "WEEKS") {
+					unit = "WEEK";
+				}
 				data->schedule_interval_unit = unit;
 				pos++;
 			} else if (StringUtil::CIEquals(tokens[pos], "CRON")) {
@@ -430,7 +436,8 @@ static unique_ptr<PipelineParseData> ParseAlter(const string &raw_query, const v
 	           StringUtil::CIEquals(tokens[pos + 1], "SCHEDULE")) {
 		data->alter_action = AlterAction::RESUME_SCHEDULE;
 	} else {
-		throw ParserException("Expected AS, ADD CONSTRAINT, DROP CONSTRAINT, PAUSE SCHEDULE, or RESUME SCHEDULE after ALTER MATERIALIZED VIEW name");
+		throw ParserException("Expected AS, ADD CONSTRAINT, DROP CONSTRAINT, PAUSE SCHEDULE, or RESUME SCHEDULE after "
+		                      "ALTER MATERIALIZED VIEW name");
 	}
 
 	return data;
@@ -577,6 +584,8 @@ static string SerializeExpectations(const vector<Expectation> &expectations) {
 		case ExpectationAction::FAIL_UPDATE:
 			action_str = "FAIL_UPDATE";
 			break;
+		default:
+			break;
 		}
 		result += exp.name + ":::" + exp.expression + ":::" + action_str;
 	}
@@ -671,9 +680,9 @@ ParserExtensionParseResult PipelineParserExtension::PipelineParseFunction(Parser
 	}
 }
 
-ParserExtensionPlanResult PipelineParserExtension::PipelinePlanFunction(ParserExtensionInfo *info,
-                                                                        ClientContext &context,
-                                                                        unique_ptr<ParserExtensionParseData> parse_data) {
+ParserExtensionPlanResult
+PipelineParserExtension::PipelinePlanFunction(ParserExtensionInfo *info, ClientContext &context,
+                                              unique_ptr<ParserExtensionParseData> parse_data) {
 	auto &data = dynamic_cast<PipelineParseData &>(*parse_data);
 
 	ParserExtensionPlanResult result;
@@ -731,6 +740,8 @@ ParserExtensionPlanResult PipelineParserExtension::PipelinePlanFunction(ParserEx
 			case ExpectationAction::FAIL_UPDATE:
 				action_str = "FAIL_UPDATE";
 				break;
+			default:
+				break;
 			}
 			result.parameters.push_back(Value(action_str));
 			break;
@@ -753,6 +764,8 @@ ParserExtensionPlanResult PipelineParserExtension::PipelinePlanFunction(ParserEx
 			result.parameters.push_back(Value(""));
 			result.parameters.push_back(Value(""));
 			break;
+		default:
+			break;
 		}
 		break;
 	}
@@ -774,6 +787,8 @@ ParserExtensionPlanResult PipelineParserExtension::PipelinePlanFunction(ParserEx
 		case RefreshMode::FULL:
 			mode_str = "FULL";
 			break;
+		default:
+			break;
 		}
 		result.parameters.push_back(Value(data.view_name));
 		result.parameters.push_back(Value(mode_str));
@@ -790,6 +805,8 @@ ParserExtensionPlanResult PipelineParserExtension::PipelinePlanFunction(ParserEx
 		result.parameters.push_back(Value(data.query));
 		break;
 	}
+	default:
+		break;
 	}
 
 	return result;

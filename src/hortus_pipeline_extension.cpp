@@ -40,8 +40,8 @@ static void LoadInternal(ExtensionLoader &loader) {
 	// Check if __pipeline__ schema exists (from a previous session)
 	{
 		Connection check_conn(db);
-		auto schema_check = check_conn.Query(
-		    "SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name = '__pipeline__'");
+		auto schema_check =
+		    check_conn.Query("SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name = '__pipeline__'");
 		if (!schema_check->HasError() && schema_check->RowCount() > 0 &&
 		    schema_check->GetValue(0, 0).GetValue<int64_t>() > 0) {
 			// Schema exists -- load schedule info and register with scheduler

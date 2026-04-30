@@ -1,6 +1,13 @@
 #
 # This workflow calls the main distribution pipeline from DuckDB to build, test and (optionally) release the extension
 #
+# To build against a different DuckDB version:
+#   1. Create a branch (e.g. duckdb-v1.5.2)
+#   2. Update DUCKDB_VERSION below and the @ref in 'uses:' to match
+#   3. Update the duckdb submodule: cd duckdb && git checkout v1.5.2
+#   4. Update extension-ci-tools submodule: cd extension-ci-tools && git checkout v1.5.2
+#   5. Push and the CI will build against the new version
+#
 name: Main Extension Distribution Pipeline
 on:
   push:

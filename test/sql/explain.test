@@ -1,5 +1,5 @@
 # name: test/sql/explain.test
-# group: [hortus_pipeline]
+# group: [sql]
 
 require hortus_pipeline
 

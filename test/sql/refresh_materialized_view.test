@@ -1,5 +1,5 @@
 # name: test/sql/refresh_materialized_view.test
-# group: [hortus_pipeline]
+# group: [sql]
 
 require hortus_pipeline
 

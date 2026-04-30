@@ -4,8 +4,8 @@
 
 namespace duckdb {
 
-static unique_ptr<PipelineScheduler> global_scheduler_instance;
-static std::mutex global_scheduler_mutex;
+static unique_ptr<PipelineScheduler> global_scheduler_instance; // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+static std::mutex global_scheduler_mutex;                      // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 
 PipelineScheduler &PipelineScheduler::Get(DatabaseInstance &db) {
 	lock_guard<std::mutex> lock(global_scheduler_mutex);

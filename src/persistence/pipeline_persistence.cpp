@@ -5,7 +5,7 @@
 
 namespace duckdb {
 
-static PipelinePersistence global_persistence_instance;
+static PipelinePersistence global_persistence_instance; // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 
 PipelinePersistence &PipelinePersistence::Get() {
 	return global_persistence_instance;

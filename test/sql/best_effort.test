@@ -1,5 +1,5 @@
 # name: test/sql/best_effort.test
-# group: [hortus_pipeline]
+# group: [sql]
 
 require hortus_pipeline
 

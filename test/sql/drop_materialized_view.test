@@ -1,5 +1,5 @@
 # name: test/sql/drop_materialized_view.test
-# group: [hortus_pipeline]
+# group: [sql]
 
 require hortus_pipeline
 

@@ -31,9 +31,12 @@ Built for DuckDB v1.5.1.
     - [pipeline_status()](#pipeline_status)
     - [pipeline_expectations()](#pipeline_expectations)
     - [pipeline_schedules()](#pipeline_schedules)
-    - [pipeline_check_schedules()](#pipeline_check_schedules)
-13. [Building](#building)
-14. [Installation](#installation)
+    - [pipeline_fires()](#pipeline_fires)
+    - [pipeline_run_logs()](#pipeline_run_logs)
+    - [pipeline_expectation_logs()](#pipeline_expectation_logs)
+13. [Persistence](#persistence)
+14. [Building](#building)
+15. [Installation](#installation)
 
 ## Quick Start
 
@@ -544,7 +547,7 @@ CALL pipeline_schedules();
 -- └────────────────┴──────────────────┴────────┘
 
 -- Force all scheduled views to refresh now
-CALL pipeline_check_schedules();
+CALL pipeline_fires();
 ```
 
 ---
@@ -607,18 +610,55 @@ CALL pipeline_schedules();
 | `schedule` | VARCHAR | Schedule description (e.g., "EVERY 1 HOUR") |
 | `paused` | BOOLEAN | Whether the schedule is paused |
 
-### pipeline_check_schedules()
+### pipeline_fires()
 
 Immediately fires all scheduled views and returns execution status.
 
 ```sql
-CALL pipeline_check_schedules();
+CALL pipeline_fires();
 ```
 
 | Column | Type | Description |
 |--------|------|-------------|
 | `name` | VARCHAR | View name |
 | `status` | VARCHAR | Execution result |
+
+### pipeline_run_logs()
+
+Returns full run history.
+
+```sql
+CALL pipeline_run_logs();
+```
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `run_id` | BIGINT | Unique run identifier |
+| `view_name` | VARCHAR | Materialized view name |
+| `started_at` | TIMESTAMP | Run start time |
+| `finished_at` | TIMESTAMP | Run end time |
+| `success` | BOOLEAN | True if succeeded |
+| `error_message` | VARCHAR | Error text on failure |
+| `trigger` | VARCHAR | manual, schedule, or refresh_all |
+| `rows_affected` | BIGINT | Row count in result |
+
+### pipeline_expectation_logs()
+
+Returns per-run constraint results.
+
+```sql
+CALL pipeline_expectation_logs();
+```
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `run_id` | BIGINT | FK to run_logs |
+| `view_name` | VARCHAR | Materialized view name |
+| `constraint_name` | VARCHAR | Constraint name |
+| `total_rows` | BIGINT | Total input rows |
+| `passed` | BIGINT | Rows passed |
+| `failed` | BIGINT | Rows failed |
+| `action` | VARCHAR | WARN, DROP ROW, or FAIL UPDATE |
 
 ---
 
@@ -644,6 +684,36 @@ DROP MATERIALIZED VIEW live_summary;
 DROP TABLE raw_orders;
 DROP TABLE raw_customers;
 ```
+
+---
+
+## Persistence
+
+Pipeline metadata is automatically persisted to a `__pipeline__` schema. This schema is created lazily on first pipeline creation.
+
+- **File-based DuckDB:** Metadata persists across restarts. Schedules auto-resume.
+- **`:memory:` mode:** Metadata exists during the session but is lost on exit.
+- **Multi-database:** Each attached database gets its own `__pipeline__` schema, determined by the view name qualifier.
+
+```sql
+-- Default database
+CREATE OR REFRESH MATERIALIZED VIEW my_view AS SELECT ...;
+
+-- Iceberg catalog -- __pipeline__ created in iceberg_catalog
+CREATE OR REFRESH MATERIALIZED VIEW iceberg_catalog.my_view AS SELECT ...;
+```
+
+The `__pipeline__` schema contains these system tables:
+
+| Table | Purpose |
+|-------|---------|
+| `__pipeline__.views` | View definitions |
+| `__pipeline__.constraints` | Expectation definitions |
+| `__pipeline__.schedules` | Schedule configurations |
+| `__pipeline__.run_logs` | Run history (append-only) |
+| `__pipeline__.expectation_logs` | Per-run constraint results |
+
+All data is cascade-deleted when a view is dropped.
 
 ---
 

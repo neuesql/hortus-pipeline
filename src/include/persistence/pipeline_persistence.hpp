@@ -2,7 +2,6 @@
 #include "duckdb.hpp"
 #include "catalog/materialized_view_catalog.hpp"
 #include <string>
-#include <unordered_set>
 #include <mutex>
 
 namespace duckdb {
@@ -46,7 +45,6 @@ public:
 
 private:
     std::mutex mutex;
-    unordered_set<string> initialized_databases;
 
     void CreateSchema(DatabaseInstance &db, const string &database);
 };

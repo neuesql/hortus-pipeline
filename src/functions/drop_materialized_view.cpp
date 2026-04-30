@@ -4,6 +4,8 @@
 #include "duckdb/main/connection.hpp"
 #include "duckdb/common/string_util.hpp"
 #include "catalog/materialized_view_catalog.hpp"
+#include "scheduler/scheduler.hpp"
+#include "persistence/pipeline_persistence.hpp"
 
 namespace duckdb {
 
@@ -42,6 +44,16 @@ static void DropMVFunc(ClientContext &context, TableFunctionInput &data_p, DataC
 
     auto &db = DatabaseInstance::GetDatabase(context);
     auto &catalog = MaterializedViewCatalog::Get(db);
+
+    // Remove from scheduler if scheduled
+    PipelineScheduler::Get(db).RemoveSchedule(bind_data.view_name);
+
+    // Remove all persistence rows for this view before dropping
+    auto resolved = PipelinePersistence::ResolveQualifiedName(bind_data.view_name);
+    auto &database = resolved.first;
+    auto &unqualified_name = resolved.second;
+    auto &persistence = PipelinePersistence::Get();
+    persistence.CascadeDelete(db, database, unqualified_name);
 
     // Remove from our catalog (throws if not found)
     catalog.Drop(bind_data.view_name);

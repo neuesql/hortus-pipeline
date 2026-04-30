@@ -3,6 +3,8 @@
 #include "duckdb/main/client_context.hpp"
 #include "duckdb/common/string_util.hpp"
 #include "catalog/materialized_view_catalog.hpp"
+#include "scheduler/scheduler.hpp"
+#include "persistence/pipeline_persistence.hpp"
 
 namespace duckdb {
 
@@ -64,10 +66,16 @@ static void AlterMVFunc(ClientContext &context, TableFunctionInput &data_p, Data
     auto &db = DatabaseInstance::GetDatabase(context);
     auto &catalog = MaterializedViewCatalog::Get(db);
 
+    auto resolved = PipelinePersistence::ResolveQualifiedName(bind_data.view_name);
+    auto &database = resolved.first;
+    auto &unqualified_name = resolved.second;
+    auto &persistence = PipelinePersistence::Get();
+
     string status;
 
     if (bind_data.alter_action == "SET_QUERY") {
         catalog.AlterQuery(bind_data.view_name, bind_data.new_query);
+        persistence.UpdateViewQuery(db, database, unqualified_name, bind_data.new_query);
         status = "Altered materialized view '" + bind_data.view_name + "' query (refresh needed to apply)";
     } else if (bind_data.alter_action == "ADD_CONSTRAINT") {
         Expectation exp;
@@ -81,15 +89,25 @@ static void AlterMVFunc(ClientContext &context, TableFunctionInput &data_p, Data
             exp.action = ExpectationAction::WARN;
         }
         catalog.AddConstraint(bind_data.view_name, exp);
+        string action_str;
+        if (bind_data.action_string == "DROP_ROW") action_str = "DROP ROW";
+        else if (bind_data.action_string == "FAIL_UPDATE") action_str = "FAIL UPDATE";
+        else action_str = "WARN";
+        persistence.AddConstraint(db, database, unqualified_name, bind_data.constraint_name, bind_data.expression, action_str);
         status = "Added constraint '" + bind_data.constraint_name + "' to materialized view '" + bind_data.view_name + "'";
     } else if (bind_data.alter_action == "DROP_CONSTRAINT") {
         catalog.DropConstraint(bind_data.view_name, bind_data.drop_constraint_name);
+        persistence.DropConstraint(db, database, unqualified_name, bind_data.drop_constraint_name);
         status = "Dropped constraint '" + bind_data.drop_constraint_name + "' from materialized view '" + bind_data.view_name + "'";
     } else if (bind_data.alter_action == "PAUSE_SCHEDULE") {
         catalog.PauseSchedule(bind_data.view_name);
+        PipelineScheduler::Get(db).PauseSchedule(bind_data.view_name);
+        persistence.UpdateSchedulePaused(db, database, unqualified_name, true);
         status = "Paused schedule for materialized view '" + bind_data.view_name + "'";
     } else if (bind_data.alter_action == "RESUME_SCHEDULE") {
         catalog.ResumeSchedule(bind_data.view_name);
+        PipelineScheduler::Get(db).ResumeSchedule(bind_data.view_name);
+        persistence.UpdateSchedulePaused(db, database, unqualified_name, false);
         status = "Resumed schedule for materialized view '" + bind_data.view_name + "'";
     }
 

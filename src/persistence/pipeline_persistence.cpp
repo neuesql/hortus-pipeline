@@ -27,11 +27,10 @@ pair<string, string> PipelinePersistence::ResolveQualifiedName(const string &qua
 
 void PipelinePersistence::EnsureInitialized(DatabaseInstance &db, const string &database) {
     lock_guard<std::mutex> lock(mutex);
-    if (initialized_databases.count(database)) {
-        return;
-    }
+    // Always call CreateSchema — it uses IF NOT EXISTS so it's idempotent and cheap.
+    // We cannot cache by database name alone because the global singleton survives
+    // across different DatabaseInstance lifetimes (e.g. in test suites).
     CreateSchema(db, database);
-    initialized_databases.insert(database);
 }
 
 void PipelinePersistence::CreateSchema(DatabaseInstance &db, const string &database) {
@@ -271,11 +270,6 @@ void PipelinePersistence::HydrateFromDatabase(DatabaseInstance &db, const string
     if (schema_check->HasError() || schema_check->RowCount() == 0 ||
         schema_check->GetValue(0, 0).GetValue<int64_t>() == 0) {
         return;
-    }
-
-    {
-        lock_guard<std::mutex> lock(mutex);
-        initialized_databases.insert(database);
     }
 
     auto views_result = conn.Query("SELECT name, query, comment, dependencies, is_materialized FROM " +

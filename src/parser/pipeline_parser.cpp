@@ -61,12 +61,18 @@ static vector<string> Tokenize(const string &input) {
 			tokens.push_back(",");
 			i++;
 		} else if (c == '=') {
-			if (!current.empty()) {
-				tokens.push_back(current);
-				current.clear();
+			// Keep >= <= != as single tokens
+			if (!current.empty() && (current.back() == '>' || current.back() == '<' || current.back() == '!')) {
+				current += c;
+				i++;
+			} else {
+				if (!current.empty()) {
+					tokens.push_back(current);
+					current.clear();
+				}
+				tokens.push_back("=");
+				i++;
 			}
-			tokens.push_back("=");
-			i++;
 		} else if (c == ';') {
 			if (!current.empty()) {
 				tokens.push_back(current);

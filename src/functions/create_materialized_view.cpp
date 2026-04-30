@@ -4,6 +4,8 @@
 #include "duckdb/common/string_util.hpp"
 #include "catalog/materialized_view_catalog.hpp"
 #include "executor/materializer.hpp"
+#include "scheduler/scheduler.hpp"
+#include "persistence/pipeline_persistence.hpp"
 
 namespace duckdb {
 
@@ -115,6 +117,29 @@ static void CreateMVFunc(ClientContext &context, TableFunctionInput &data_p, Dat
         } else if (bind_data.serialized_schedule == "ON_UPDATE") {
             def.schedule_type = 3; // ON_UPDATE
         }
+    }
+
+    // Register with scheduler if scheduled
+    if (!bind_data.serialized_schedule.empty()) {
+        auto &scheduler = PipelineScheduler::Get(db);
+        scheduler.RemoveSchedule(bind_data.view_name); // remove old schedule if replacing
+        scheduler.AddSchedule(bind_data.view_name);
+    }
+
+    // Persist to __pipeline__ tables
+    auto resolved = PipelinePersistence::ResolveQualifiedName(bind_data.view_name);
+    auto &database = resolved.first;
+    auto &unqualified_name = resolved.second;
+    auto &persistence = PipelinePersistence::Get(db);
+    persistence.PersistView(database, unqualified_name, bind_data.query,
+                            bind_data.comment, expectations, deps);
+
+    // Persist schedule if present
+    if (!bind_data.serialized_schedule.empty()) {
+        auto &def = catalog.Get(bind_data.view_name);
+        persistence.PersistSchedule(database, unqualified_name,
+                                     def.schedule_type, def.schedule_interval,
+                                     def.schedule_interval_unit, def.schedule_cron_expression);
     }
 
     // Materialize

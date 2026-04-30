@@ -1,0 +1,39 @@
+# name: test/sql/pipeline_fires.test
+# group: [hortus_pipeline]
+
+require hortus_pipeline
+
+statement ok
+CREATE TABLE fire_data (id INTEGER, val INTEGER);
+
+statement ok
+INSERT INTO fire_data VALUES (1, 10), (2, 20);
+
+statement ok
+CREATE OR REFRESH MATERIALIZED VIEW fire_test SCHEDULE EVERY 1 HOUR AS SELECT COUNT(*) AS cnt FROM fire_data;
+
+query I
+SELECT cnt FROM fire_test;
+----
+2
+
+statement ok
+INSERT INTO fire_data VALUES (3, 30);
+
+# Force fire all schedules
+query II
+SELECT name, status FROM pipeline_fires() WHERE name = 'fire_test';
+----
+fire_test	refreshed
+
+# Should reflect new data
+query I
+SELECT cnt FROM fire_test;
+----
+3
+
+statement ok
+DROP MATERIALIZED VIEW fire_test;
+
+statement ok
+DROP TABLE fire_data;

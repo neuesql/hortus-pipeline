@@ -1,0 +1,59 @@
+# name: test/sql/run_logs.test
+# group: [hortus_pipeline]
+
+require hortus_pipeline
+
+# Create a view with expectations
+statement ok
+CREATE OR REFRESH MATERIALIZED VIEW log_test
+  CONSTRAINT positive_id EXPECT (id > 0)
+AS SELECT * FROM (VALUES (1, 'a'), (-1, 'b'), (2, 'c')) t(id, name);
+
+# Should have a run log entry from CREATE
+query I
+SELECT COUNT(*) FROM pipeline_run_logs() WHERE view_name = 'log_test';
+----
+1
+
+# Check run log fields
+query II
+SELECT success, trigger FROM pipeline_run_logs() WHERE view_name = 'log_test';
+----
+true	manual
+
+# Should have expectation log entries
+query I
+SELECT COUNT(*) FROM pipeline_expectation_logs() WHERE view_name = 'log_test';
+----
+1
+
+# Check expectation log fields
+query III
+SELECT constraint_name, failed, action FROM pipeline_expectation_logs() WHERE view_name = 'log_test';
+----
+positive_id	1	WARN
+
+# Refresh should add another run log
+statement ok
+REFRESH MATERIALIZED VIEW log_test;
+
+query I
+SELECT COUNT(*) FROM pipeline_run_logs() WHERE view_name = 'log_test';
+----
+2
+
+# Clean up
+statement ok
+DROP MATERIALIZED VIEW log_test;
+
+# Run logs should be cascade-deleted
+query I
+SELECT COUNT(*) FROM pipeline_run_logs() WHERE view_name = 'log_test';
+----
+0
+
+# Expectation logs should also be cascade-deleted
+query I
+SELECT COUNT(*) FROM pipeline_expectation_logs() WHERE view_name = 'log_test';
+----
+0

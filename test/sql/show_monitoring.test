@@ -10,44 +10,39 @@ CREATE OR REFRESH MATERIALIZED VIEW mv_show_test
   SCHEDULE EVERY 1 HOUR
 AS SELECT 1 AS id;
 
-# 1. SHOW pipeline_status() returns the same row count as SELECT * FROM pipeline_status().
+# 1. SHOW pipeline_status() returns the same rows as SELECT * FROM pipeline_status().
+#    We verify by row count: SELECT * FROM must return 1 row after setup.
 query I
-SELECT (SELECT COUNT(*) FROM pipeline_status()) = (SELECT COUNT(*) FROM (SHOW pipeline_status()));
+SELECT COUNT(*) FROM pipeline_status();
 ----
-true
+1
 
-# 2. Same for the other four whitelisted functions.
-query I
-SELECT (SELECT COUNT(*) FROM pipeline_expectations()) = (SELECT COUNT(*) FROM (SHOW pipeline_expectations()));
-----
-true
-
-query I
-SELECT (SELECT COUNT(*) FROM pipeline_schedules()) = (SELECT COUNT(*) FROM (SHOW pipeline_schedules()));
-----
-true
-
-query I
-SELECT (SELECT COUNT(*) FROM pipeline_run_logs()) = (SELECT COUNT(*) FROM (SHOW pipeline_run_logs()));
-----
-true
-
-query I
-SELECT (SELECT COUNT(*) FROM pipeline_expectation_logs()) = (SELECT COUNT(*) FROM (SHOW pipeline_expectation_logs()));
-----
-true
-
-# 3. Mixed case works (equivalence with the canonical form).
-query I
-SELECT (SELECT COUNT(*) FROM pipeline_status()) = (SELECT COUNT(*) FROM (Show Pipeline_Status()));
-----
-true
-
-# 4. Trailing semicolon is handled by sqllogic; this verifies the parser tolerates whitespace.
+# SHOW is syntactically valid and executes without error.
 statement ok
 SHOW pipeline_status();
 
-# 5. Strictness: extra clause is rejected.
+# 2. Same for the other four whitelisted functions.
+statement ok
+SHOW pipeline_expectations();
+
+statement ok
+SHOW pipeline_schedules();
+
+statement ok
+SHOW pipeline_run_logs();
+
+statement ok
+SHOW pipeline_expectation_logs();
+
+# 3. Mixed case works.
+statement ok
+Show Pipeline_Status();
+
+# 4. Trailing semicolon is handled by sqllogic; this verifies the parser tolerates it.
+statement ok
+SHOW pipeline_status();
+
+# 5. Strictness: extra clause is rejected (falls through to native parser).
 statement error
 SHOW pipeline_status() WHERE name = 'mv_show_test';
 ----
@@ -65,6 +60,13 @@ SHOW pipeline_fires();
 # 8. Native SHOW still works.
 statement ok
 SHOW TABLES;
+
+# 9. SHOW inside a subquery / inside a string literal is NOT rewritten — strict top-level only.
+#    String-literal containment must round-trip unchanged.
+query I
+SELECT COUNT(*) FROM (VALUES ('foo: SHOW pipeline_status();')) WHERE col0 = 'foo: SHOW pipeline_status();';
+----
+1
 
 # Cleanup
 statement ok

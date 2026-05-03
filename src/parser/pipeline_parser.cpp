@@ -826,56 +826,17 @@ ParserOverrideResult PipelineParserExtension::PipelineParserOverride(ParserExten
 	string upper = StringUtil::Upper(trimmed);
 
 	// Strict sugar: SHOW pipeline_<name>()  ->  SELECT * FROM pipeline_<name>()
-	// Works both as a top-level statement and embedded inside a subquery:
-	//   SHOW pipeline_status()                               -> SELECT * FROM pipeline_status()
-	//   SELECT ... FROM (SHOW pipeline_status())             -> SELECT ... FROM (SELECT * FROM pipeline_status())
-	// Strictness is enforced by requiring the closing ')' to be followed only by
-	// whitespace, ';', ')' (end of enclosing subquery), or end-of-string.
-	// Any other trailing token (e.g. WHERE, LIMIT) is left to the native parser.
-	{
-		static const vector<pair<string, string>> show_targets = {
-		    {"SHOW PIPELINE_STATUS()", "SELECT * FROM pipeline_status()"},
-		    {"SHOW PIPELINE_EXPECTATIONS()", "SELECT * FROM pipeline_expectations()"},
-		    {"SHOW PIPELINE_SCHEDULES()", "SELECT * FROM pipeline_schedules()"},
-		    {"SHOW PIPELINE_RUN_LOGS()", "SELECT * FROM pipeline_run_logs()"},
-		    {"SHOW PIPELINE_EXPECTATION_LOGS()", "SELECT * FROM pipeline_expectation_logs()"},
+	// Top-level only. The strict 4-token shape ensures we never rewrite SHOW
+	// occurrences inside string literals, comments, or expression contexts.
+	if (StringUtil::StartsWith(upper, "SHOW PIPELINE_")) {
+		static const unordered_set<string> show_targets = {
+		    "PIPELINE_STATUS",       "PIPELINE_EXPECTATIONS",     "PIPELINE_SCHEDULES",
+		    "PIPELINE_RUN_LOGS",     "PIPELINE_EXPECTATION_LOGS",
 		};
-		// Build the upper-cased version of the original (pre-trimmed) query for scanning.
-		// We use the raw query here so positions align with the original for substitution.
-		string query_upper = StringUtil::Upper(query);
-		string rewritten = query;
-		bool any_substituted = false;
-		for (auto &entry : show_targets) {
-			const string &pattern_upper = entry.first;
-			const string &replacement = entry.second;
-			idx_t search_pos = 0;
-			while (true) {
-				auto pos = query_upper.find(pattern_upper, search_pos);
-				if (pos == string::npos) {
-					break;
-				}
-				// Check what follows the closing ')' of the matched pattern.
-				idx_t after = pos + pattern_upper.size();
-				// Skip trailing whitespace after the pattern.
-				while (after < query_upper.size() && std::isspace((unsigned char)query_upper[after])) {
-					after++;
-				}
-				// Accept only if followed by end-of-string, ';', or ')'.
-				bool valid_terminator = (after == query_upper.size()) || query_upper[after] == ';' ||
-				                        query_upper[after] == ')';
-				if (!valid_terminator) {
-					// Extra tokens after '()' — leave this occurrence to the native parser.
-					search_pos = pos + 1;
-					continue;
-				}
-				// Substitute in both the working copy and the upper-cased mirror.
-				rewritten.replace(pos, pattern_upper.size(), replacement);
-				query_upper.replace(pos, pattern_upper.size(), replacement);
-				any_substituted = true;
-				search_pos = pos + replacement.size();
-			}
-		}
-		if (any_substituted) {
+		auto tokens = Tokenize(trimmed);
+		if (tokens.size() == 4 && StringUtil::Upper(tokens[0]) == "SHOW" &&
+		    show_targets.count(StringUtil::Upper(tokens[1])) > 0 && tokens[2] == "(" && tokens[3] == ")") {
+			string rewritten = "SELECT * FROM " + tokens[1] + "()";
 			try {
 				Parser parser;
 				parser.ParseQuery(rewritten);
@@ -884,6 +845,7 @@ ParserOverrideResult PipelineParserExtension::PipelineParserOverride(ParserExten
 				return ParserOverrideResult(e);
 			}
 		}
+		// Any other SHOW pipeline_* shape — fall through to native parser
 	}
 
 	bool is_ours = StringUtil::StartsWith(upper, "DROP MATERIALIZED VIEW") ||

@@ -51,7 +51,7 @@ void PipelinePersistence::CreateSchema(DatabaseInstance &db, const string &datab
 		throw InvalidInputException("Failed to create __pipeline__ schema: %s", schema_result->GetError());
 	}
 
-	conn.Query("CREATE TABLE IF NOT EXISTS " + QualifyTable(database, "views") +
+	conn.Query("CREATE TABLE IF NOT EXISTS " + QualifyTable(database, "materialized_views") +
 	           " ("
 	           "name VARCHAR PRIMARY KEY, "
 	           "query VARCHAR NOT NULL, "
@@ -61,13 +61,13 @@ void PipelinePersistence::CreateSchema(DatabaseInstance &db, const string &datab
 	           "created_at TIMESTAMP DEFAULT current_timestamp, "
 	           "updated_at TIMESTAMP DEFAULT current_timestamp)");
 
-	conn.Query("CREATE TABLE IF NOT EXISTS " + QualifyTable(database, "constraints") +
+	conn.Query("CREATE TABLE IF NOT EXISTS " + QualifyTable(database, "expectations") +
 	           " ("
 	           "view_name VARCHAR NOT NULL, "
-	           "constraint_name VARCHAR NOT NULL, "
+	           "expectation_name VARCHAR NOT NULL, "
 	           "expression VARCHAR NOT NULL, "
 	           "action VARCHAR NOT NULL, "
-	           "PRIMARY KEY (view_name, constraint_name))");
+	           "PRIMARY KEY (view_name, expectation_name))");
 
 	conn.Query("CREATE TABLE IF NOT EXISTS " + QualifyTable(database, "schedules") +
 	           " ("
@@ -98,7 +98,7 @@ void PipelinePersistence::CreateSchema(DatabaseInstance &db, const string &datab
 	           " ("
 	           "run_id BIGINT NOT NULL, "
 	           "view_name VARCHAR NOT NULL, "
-	           "constraint_name VARCHAR NOT NULL, "
+	           "expectation_name VARCHAR NOT NULL, "
 	           "total_rows BIGINT, "
 	           "passed BIGINT, "
 	           "failed BIGINT, "
@@ -126,7 +126,7 @@ void PipelinePersistence::PersistView(DatabaseInstance &db, const string &databa
 	conn.Query("BEGIN TRANSACTION");
 
 	// Check if view already exists to preserve created_at
-	string views_table = QualifyTable(database, "views");
+	string views_table = QualifyTable(database, "materialized_views");
 	auto existing = conn.Query("SELECT created_at FROM " + views_table + " WHERE name = '" + EscapeSQL(name) + "'");
 	bool is_update = !existing->HasError() && existing->RowCount() > 0;
 
@@ -145,7 +145,7 @@ void PipelinePersistence::PersistView(DatabaseInstance &db, const string &databa
 		           EscapeSQL(deps) + "', false)");
 	}
 
-	conn.Query("DELETE FROM " + QualifyTable(database, "constraints") + " WHERE view_name = '" + EscapeSQL(name) + "'");
+	conn.Query("DELETE FROM " + QualifyTable(database, "expectations") + " WHERE view_name = '" + EscapeSQL(name) + "'");
 	for (auto &exp : expectations) {
 		string action_str;
 		switch (exp.action) {
@@ -161,8 +161,8 @@ void PipelinePersistence::PersistView(DatabaseInstance &db, const string &databa
 		default:
 			break;
 		}
-		conn.Query("INSERT INTO " + QualifyTable(database, "constraints") +
-		           " (view_name, constraint_name, expression, action) VALUES ('" + EscapeSQL(name) + "', '" +
+		conn.Query("INSERT INTO " + QualifyTable(database, "expectations") +
+		           " (view_name, expectation_name, expression, action) VALUES ('" + EscapeSQL(name) + "', '" +
 		           EscapeSQL(exp.name) + "', '" + EscapeSQL(exp.expression) + "', '" + EscapeSQL(action_str) + "')");
 	}
 
@@ -187,7 +187,7 @@ void PipelinePersistence::UpdateViewQuery(DatabaseInstance &db, const string &da
 	EnsureInitialized(db, database);
 	Connection conn(db);
 
-	conn.Query("UPDATE " + QualifyTable(database, "views") + " SET query = '" + EscapeSQL(query) +
+	conn.Query("UPDATE " + QualifyTable(database, "materialized_views") + " SET query = '" + EscapeSQL(query) +
 	           "', updated_at = current_timestamp"
 	           " WHERE name = '" +
 	           EscapeSQL(name) + "'");
@@ -197,29 +197,30 @@ void PipelinePersistence::UpdateViewMaterialized(DatabaseInstance &db, const str
 	EnsureInitialized(db, database);
 	Connection conn(db);
 
-	conn.Query("UPDATE " + QualifyTable(database, "views") +
+	conn.Query("UPDATE " + QualifyTable(database, "materialized_views") +
 	           " SET is_materialized = true, updated_at = current_timestamp"
 	           " WHERE name = '" +
 	           EscapeSQL(name) + "'");
 }
 
-void PipelinePersistence::AddConstraint(DatabaseInstance &db, const string &database, const string &name,
-                                        const string &constraint_name, const string &expression, const string &action) {
+void PipelinePersistence::AddExpectation(DatabaseInstance &db, const string &database, const string &name,
+                                         const string &expectation_name, const string &expression,
+                                         const string &action) {
 	EnsureInitialized(db, database);
 	Connection conn(db);
 
-	conn.Query("INSERT INTO " + QualifyTable(database, "constraints") +
-	           " (view_name, constraint_name, expression, action) VALUES ('" + EscapeSQL(name) + "', '" +
-	           EscapeSQL(constraint_name) + "', '" + EscapeSQL(expression) + "', '" + EscapeSQL(action) + "')");
+	conn.Query("INSERT INTO " + QualifyTable(database, "expectations") +
+	           " (view_name, expectation_name, expression, action) VALUES ('" + EscapeSQL(name) + "', '" +
+	           EscapeSQL(expectation_name) + "', '" + EscapeSQL(expression) + "', '" + EscapeSQL(action) + "')");
 }
 
-void PipelinePersistence::DropConstraint(DatabaseInstance &db, const string &database, const string &name,
-                                         const string &constraint_name) {
+void PipelinePersistence::DropExpectation(DatabaseInstance &db, const string &database, const string &name,
+                                          const string &expectation_name) {
 	EnsureInitialized(db, database);
 	Connection conn(db);
 
-	conn.Query("DELETE FROM " + QualifyTable(database, "constraints") + " WHERE view_name = '" + EscapeSQL(name) +
-	           "' AND constraint_name = '" + EscapeSQL(constraint_name) + "'");
+	conn.Query("DELETE FROM " + QualifyTable(database, "expectations") + " WHERE view_name = '" + EscapeSQL(name) +
+	           "' AND expectation_name = '" + EscapeSQL(expectation_name) + "'");
 }
 
 void PipelinePersistence::UpdateSchedulePaused(DatabaseInstance &db, const string &database, const string &name,
@@ -249,9 +250,9 @@ void PipelinePersistence::CascadeDelete(DatabaseInstance &db, const string &data
 	conn.Query("DELETE FROM " + QualifyTable(database, "expectation_logs") + " WHERE view_name = '" + EscapeSQL(name) +
 	           "'");
 	conn.Query("DELETE FROM " + QualifyTable(database, "run_logs") + " WHERE view_name = '" + EscapeSQL(name) + "'");
-	conn.Query("DELETE FROM " + QualifyTable(database, "constraints") + " WHERE view_name = '" + EscapeSQL(name) + "'");
+	conn.Query("DELETE FROM " + QualifyTable(database, "expectations") + " WHERE view_name = '" + EscapeSQL(name) + "'");
 	conn.Query("DELETE FROM " + QualifyTable(database, "schedules") + " WHERE view_name = '" + EscapeSQL(name) + "'");
-	conn.Query("DELETE FROM " + QualifyTable(database, "views") + " WHERE name = '" + EscapeSQL(name) + "'");
+	conn.Query("DELETE FROM " + QualifyTable(database, "materialized_views") + " WHERE name = '" + EscapeSQL(name) + "'");
 	conn.Query("COMMIT");
 }
 
@@ -281,15 +282,15 @@ void PipelinePersistence::CompleteRunLog(DatabaseInstance &db, const string &dat
 }
 
 void PipelinePersistence::InsertExpectationLog(DatabaseInstance &db, const string &database, int64_t run_id,
-                                               const string &view_name, const string &constraint_name,
+                                               const string &view_name, const string &expectation_name,
                                                int64_t total_rows, int64_t passed, int64_t failed,
                                                const string &action) {
 	EnsureInitialized(db, database);
 	Connection conn(db);
 
 	conn.Query("INSERT INTO " + QualifyTable(database, "expectation_logs") +
-	           " (run_id, view_name, constraint_name, total_rows, passed, failed, action) VALUES (" +
-	           std::to_string(run_id) + ", '" + EscapeSQL(view_name) + "', '" + EscapeSQL(constraint_name) + "', " +
+	           " (run_id, view_name, expectation_name, total_rows, passed, failed, action) VALUES (" +
+	           std::to_string(run_id) + ", '" + EscapeSQL(view_name) + "', '" + EscapeSQL(expectation_name) + "', " +
 	           std::to_string(total_rows) + ", " + std::to_string(passed) + ", " + std::to_string(failed) + ", '" +
 	           EscapeSQL(action) + "')");
 }
@@ -297,7 +298,7 @@ void PipelinePersistence::InsertExpectationLog(DatabaseInstance &db, const strin
 bool PipelinePersistence::Exists(DatabaseInstance &db, const string &database, const string &name) {
 	EnsureInitialized(db, database);
 	Connection conn(db);
-	auto result = conn.Query("SELECT COUNT(*) FROM " + QualifyTable(database, "views") + " WHERE name = '" +
+	auto result = conn.Query("SELECT COUNT(*) FROM " + QualifyTable(database, "materialized_views") + " WHERE name = '" +
 	                         EscapeSQL(name) + "'");
 	if (result->HasError() || result->RowCount() == 0) {
 		return false;
@@ -311,7 +312,7 @@ MaterializedViewDefinition PipelinePersistence::GetView(DatabaseInstance &db, co
 	Connection conn(db);
 
 	auto result = conn.Query("SELECT name, query, comment, dependencies, is_materialized FROM " +
-	                         QualifyTable(database, "views") + " WHERE name = '" + EscapeSQL(name) + "'");
+	                         QualifyTable(database, "materialized_views") + " WHERE name = '" + EscapeSQL(name) + "'");
 	if (result->HasError() || result->RowCount() == 0) {
 		throw InvalidInputException("Materialized view '%s' not found", name);
 	}
@@ -338,7 +339,7 @@ MaterializedViewDefinition PipelinePersistence::GetView(DatabaseInstance &db, co
 
 	// Load expectations
 	auto constraints_result =
-	    conn.Query("SELECT constraint_name, expression, action FROM " + QualifyTable(database, "constraints") +
+	    conn.Query("SELECT expectation_name, expression, action FROM " + QualifyTable(database, "expectations") +
 	               " WHERE view_name = '" + EscapeSQL(name) + "'");
 	if (!constraints_result->HasError()) {
 		for (idx_t row = 0; row < constraints_result->RowCount(); row++) {
@@ -380,7 +381,7 @@ vector<string> PipelinePersistence::GetAllNames(DatabaseInstance &db, const stri
 	Connection conn(db);
 	vector<string> names;
 
-	auto result = conn.Query("SELECT name FROM " + QualifyTable(database, "views"));
+	auto result = conn.Query("SELECT name FROM " + QualifyTable(database, "materialized_views"));
 	if (!result->HasError()) {
 		for (idx_t row = 0; row < result->RowCount(); row++) {
 			names.push_back(result->GetValue(0, row).ToString());

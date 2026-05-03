@@ -42,7 +42,7 @@ void Materializer::Materialize(ClientContext &context, const string &view_name, 
 
 		// Write expectation logs
 		for (auto &m : metrics) {
-			persistence.InsertExpectationLog(db, database, run_id, unqualified_name, m.constraint_name, m.total_rows,
+			persistence.InsertExpectationLog(db, database, run_id, unqualified_name, m.expectation_name, m.total_rows,
 			                                 m.passed, m.failed, m.action);
 		}
 

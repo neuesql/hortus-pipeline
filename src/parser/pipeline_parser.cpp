@@ -428,7 +428,7 @@ static unique_ptr<PipelineParseData> ParseAlter(const string &raw_query, const v
 		if (pos >= tokens.size()) {
 			throw ParserException("Expected constraint name after DROP CONSTRAINT");
 		}
-		data->drop_constraint_name = tokens[pos];
+		data->drop_expectation_name = tokens[pos];
 	} else if (StringUtil::CIEquals(tokens[pos], "PAUSE") && pos + 1 < tokens.size() &&
 	           StringUtil::CIEquals(tokens[pos + 1], "SCHEDULE")) {
 		data->alter_action = AlterAction::PAUSE_SCHEDULE;
@@ -748,7 +748,7 @@ PipelineParserExtension::PipelinePlanFunction(ParserExtensionInfo *info, ClientC
 		}
 		case AlterAction::DROP_CONSTRAINT:
 			result.parameters.push_back(Value("DROP_CONSTRAINT"));
-			result.parameters.push_back(Value(data.drop_constraint_name));
+			result.parameters.push_back(Value(data.drop_expectation_name));
 			result.parameters.push_back(Value(""));
 			result.parameters.push_back(Value(""));
 			break;

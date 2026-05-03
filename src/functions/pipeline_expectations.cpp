@@ -20,7 +20,7 @@ static unique_ptr<FunctionData> PipelineExpectationsBind(ClientContext &context,
 
 	names.emplace_back("view_name");
 	return_types.emplace_back(LogicalType::VARCHAR);
-	names.emplace_back("constraint_name");
+	names.emplace_back("expectation_name");
 	return_types.emplace_back(LogicalType::VARCHAR);
 	names.emplace_back("total_rows");
 	return_types.emplace_back(LogicalType::BIGINT);
@@ -55,7 +55,7 @@ static unique_ptr<GlobalTableFunctionState> PipelineExpectationsInit(ClientConte
 		string db_prefix = databases[i] == "memory" ? "" : databases[i];
 		string el = PipelinePersistence::QualifyTable(db_prefix, "expectation_logs");
 		string rl = PipelinePersistence::QualifyTable(db_prefix, "run_logs");
-		query += "SELECT e.view_name, e.constraint_name, e.total_rows, e.passed, e.failed, e.action "
+		query += "SELECT e.view_name, e.expectation_name, e.total_rows, e.passed, e.failed, e.action "
 		         "FROM " +
 		         el +
 		         " e "

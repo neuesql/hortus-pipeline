@@ -181,7 +181,7 @@ SELECT * FROM orders_warn;
 
 CALL pipeline_expectations();
 -- ┌─────────────┬──────────────────┬────────────┬────────┬────────┬────────┐
--- │  view_name  │ constraint_name  │ total_rows │ passed │ failed │ action │
+-- │  view_name  │ expectation_name  │ total_rows │ passed │ failed │ action │
 -- ├─────────────┼──────────────────┼────────────┼────────┼────────┼────────┤
 -- │ orders_warn │ positive_amount  │          7 │      5 │      2 │ WARN   │
 -- └─────────────┴──────────────────┴────────────┴────────┴────────┴────────┘
@@ -585,7 +585,7 @@ CALL pipeline_expectations();
 | Column | Type | Description |
 |--------|------|-------------|
 | `view_name` | VARCHAR | Materialized view name |
-| `constraint_name` | VARCHAR | Constraint name |
+| `expectation_name` | VARCHAR | Expectation name |
 | `total_rows` | BIGINT | Total input rows |
 | `passed` | BIGINT | Rows that passed |
 | `failed` | BIGINT | Rows that failed |
@@ -654,7 +654,7 @@ CALL pipeline_expectation_logs();
 |--------|------|-------------|
 | `run_id` | BIGINT | FK to run_logs |
 | `view_name` | VARCHAR | Materialized view name |
-| `constraint_name` | VARCHAR | Constraint name |
+| `expectation_name` | VARCHAR | Expectation name |
 | `total_rows` | BIGINT | Total input rows |
 | `passed` | BIGINT | Rows passed |
 | `failed` | BIGINT | Rows failed |
@@ -707,8 +707,8 @@ The `__pipeline__` schema contains these system tables:
 
 | Table | Purpose |
 |-------|---------|
-| `__pipeline__.views` | View definitions |
-| `__pipeline__.constraints` | Expectation definitions |
+| `__pipeline__.materialized_views` | View definitions |
+| `__pipeline__.expectations` | Expectation definitions |
 | `__pipeline__.schedules` | Schedule configurations |
 | `__pipeline__.run_logs` | Run history (append-only) |
 | `__pipeline__.expectation_logs` | Per-run constraint results |

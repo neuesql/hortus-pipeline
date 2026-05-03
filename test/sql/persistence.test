@@ -19,9 +19,9 @@ SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name = '__pipeline
 ----
 1
 
-# __pipeline__.views should have our view
+# __pipeline__.materialized_views should have our view
 query II
-SELECT name, query FROM __pipeline__.views WHERE name = 'persist_test';
+SELECT name, query FROM __pipeline__.materialized_views WHERE name = 'persist_test';
 ----
 persist_test	SELECT 1 AS id, 'hello' AS name
 
@@ -29,8 +29,8 @@ persist_test	SELECT 1 AS id, 'hello' AS name
 statement ok
 DROP MATERIALIZED VIEW persist_test;
 
-# View should be gone from __pipeline__.views
+# View should be gone from __pipeline__.materialized_views
 query I
-SELECT COUNT(*) FROM __pipeline__.views WHERE name = 'persist_test';
+SELECT COUNT(*) FROM __pipeline__.materialized_views WHERE name = 'persist_test';
 ----
 0

@@ -11,10 +11,10 @@ struct AlterMVBindData : public TableFunctionData {
 	string view_name;
 	string alter_action;
 	string new_query;
-	string constraint_name;
+	string expectation_name;
 	string expression;
 	string action_string;
-	string drop_constraint_name;
+	string drop_expectation_name;
 };
 
 struct AlterMVGlobalState : public GlobalTableFunctionState {
@@ -30,11 +30,11 @@ static unique_ptr<FunctionData> AlterMVBind(ClientContext &context, TableFunctio
 	if (data->alter_action == "SET_QUERY") {
 		data->new_query = StringValue::Get(input.inputs[2]);
 	} else if (data->alter_action == "ADD_CONSTRAINT") {
-		data->constraint_name = StringValue::Get(input.inputs[2]);
+		data->expectation_name = StringValue::Get(input.inputs[2]);
 		data->expression = StringValue::Get(input.inputs[3]);
 		data->action_string = StringValue::Get(input.inputs[4]);
 	} else if (data->alter_action == "DROP_CONSTRAINT") {
-		data->drop_constraint_name = StringValue::Get(input.inputs[2]);
+		data->drop_expectation_name = StringValue::Get(input.inputs[2]);
 	}
 
 	names.emplace_back("status");
@@ -78,13 +78,13 @@ static void AlterMVFunc(ClientContext &context, TableFunctionInput &data_p, Data
 		} else {
 			action_str = "WARN";
 		}
-		persistence.AddConstraint(db, database, unqualified_name, bind_data.constraint_name, bind_data.expression,
-		                          action_str);
+		persistence.AddExpectation(db, database, unqualified_name, bind_data.expectation_name, bind_data.expression,
+		                           action_str);
 		status =
-		    "Added constraint '" + bind_data.constraint_name + "' to materialized view '" + bind_data.view_name + "'";
+		    "Added expectation '" + bind_data.expectation_name + "' to materialized view '" + bind_data.view_name + "'";
 	} else if (bind_data.alter_action == "DROP_CONSTRAINT") {
-		persistence.DropConstraint(db, database, unqualified_name, bind_data.drop_constraint_name);
-		status = "Dropped constraint '" + bind_data.drop_constraint_name + "' from materialized view '" +
+		persistence.DropExpectation(db, database, unqualified_name, bind_data.drop_expectation_name);
+		status = "Dropped expectation '" + bind_data.drop_expectation_name + "' from materialized view '" +
 		         bind_data.view_name + "'";
 	} else if (bind_data.alter_action == "PAUSE_SCHEDULE") {
 		persistence.UpdateSchedulePaused(db, database, unqualified_name, true);

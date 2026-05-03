@@ -52,7 +52,7 @@ static unique_ptr<GlobalTableFunctionState> PipelineStatusInit(ClientContext &co
 		if (i > 0) {
 			query += " UNION ALL ";
 		}
-		string table = PipelinePersistence::QualifyTable(databases[i] == "memory" ? "" : databases[i], "views");
+		string table = PipelinePersistence::QualifyTable(databases[i] == "memory" ? "" : databases[i], "materialized_views");
 		query += "SELECT name, query, dependencies, is_materialized, comment FROM " + table;
 	}
 

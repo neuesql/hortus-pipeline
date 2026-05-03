@@ -18,7 +18,7 @@ struct Expectation {
 };
 
 struct ExpectationMetric {
-	string constraint_name;
+	string expectation_name;
 	int64_t total_rows;
 	int64_t passed;
 	int64_t failed;
@@ -55,10 +55,10 @@ public:
 	                     int interval_value, const string &interval_unit, const string &cron_expression);
 	void UpdateViewQuery(DatabaseInstance &db, const string &database, const string &name, const string &query);
 	void UpdateViewMaterialized(DatabaseInstance &db, const string &database, const string &name);
-	void AddConstraint(DatabaseInstance &db, const string &database, const string &name, const string &constraint_name,
-	                   const string &expression, const string &action);
-	void DropConstraint(DatabaseInstance &db, const string &database, const string &name,
-	                    const string &constraint_name);
+	void AddExpectation(DatabaseInstance &db, const string &database, const string &name,
+	                    const string &expectation_name, const string &expression, const string &action);
+	void DropExpectation(DatabaseInstance &db, const string &database, const string &name,
+	                     const string &expectation_name);
 	void UpdateSchedulePaused(DatabaseInstance &db, const string &database, const string &name, bool paused);
 	void UpdateScheduleLastRun(DatabaseInstance &db, const string &database, const string &name);
 	void CascadeDelete(DatabaseInstance &db, const string &database, const string &name);
@@ -68,7 +68,7 @@ public:
 	void CompleteRunLog(DatabaseInstance &db, const string &database, int64_t run_id, bool success,
 	                    const string &error_message, int64_t rows_affected);
 	void InsertExpectationLog(DatabaseInstance &db, const string &database, int64_t run_id, const string &view_name,
-	                          const string &constraint_name, int64_t total_rows, int64_t passed, int64_t failed,
+	                          const string &expectation_name, int64_t total_rows, int64_t passed, int64_t failed,
 	                          const string &action);
 
 	// Read methods

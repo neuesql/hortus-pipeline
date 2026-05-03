@@ -62,7 +62,7 @@ string ExpectationChecker::ApplyExpectations(ClientContext &context, const strin
 		auto failed_count = result->GetValue(0, 0).GetValue<int64_t>();
 
 		ExpectationMetric metric;
-		metric.constraint_name = exp.name;
+		metric.expectation_name = exp.name;
 		metric.total_rows = total_rows;
 		metric.failed = failed_count;
 		metric.passed = total_rows - failed_count;
@@ -92,7 +92,7 @@ string ExpectationChecker::ApplyExpectations(ClientContext &context, const strin
 			}
 
 			ExpectationMetric metric;
-			metric.constraint_name = exp.name;
+			metric.expectation_name = exp.name;
 			metric.total_rows = total_rows;
 			metric.failed = failed_count;
 			metric.passed = total_rows - failed_count;
@@ -121,7 +121,7 @@ string ExpectationChecker::ApplyExpectations(ClientContext &context, const strin
 		}
 
 		ExpectationMetric metric;
-		metric.constraint_name = exp.name;
+		metric.expectation_name = exp.name;
 		metric.total_rows = total_rows;
 		metric.failed = failed_count;
 		metric.passed = total_rows - failed_count;

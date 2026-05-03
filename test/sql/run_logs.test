@@ -29,7 +29,7 @@ SELECT COUNT(*) FROM pipeline_expectation_logs() WHERE view_name = 'log_test';
 
 # Check expectation log fields
 query III
-SELECT constraint_name, failed, action FROM pipeline_expectation_logs() WHERE view_name = 'log_test';
+SELECT expectation_name, failed, action FROM pipeline_expectation_logs() WHERE view_name = 'log_test';
 ----
 positive_id	1	WARN
 

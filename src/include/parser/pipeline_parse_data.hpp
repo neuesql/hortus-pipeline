@@ -34,7 +34,7 @@ struct PipelineParseData : public ParserExtensionParseData {
 	RefreshMode refresh_mode = RefreshMode::SYNC;
 	AlterAction alter_action = AlterAction::SET_QUERY;
 	Expectation alter_expectation;
-	string drop_constraint_name;
+	string drop_expectation_name;
 	ScheduleType schedule_type = ScheduleType::NONE;
 	int schedule_interval = 0;
 	string schedule_interval_unit;
@@ -52,7 +52,7 @@ struct PipelineParseData : public ParserExtensionParseData {
 		copy->refresh_mode = refresh_mode;
 		copy->alter_action = alter_action;
 		copy->alter_expectation = alter_expectation;
-		copy->drop_constraint_name = drop_constraint_name;
+		copy->drop_expectation_name = drop_expectation_name;
 		copy->schedule_type = schedule_type;
 		copy->schedule_interval = schedule_interval;
 		copy->schedule_interval_unit = schedule_interval_unit;

@@ -5,14 +5,23 @@
 #include "duckdb/common/string_util.hpp"
 #include "persistence/pipeline_persistence.hpp"
 #include "executor/dag_resolver.hpp"
+#include <unordered_set>
 
 namespace duckdb {
 
 struct PipelineStatusBindData : public TableFunctionData {};
 
+struct PipelineStatusRow {
+	string name;
+	string query;
+	string dependencies;
+	bool is_materialized;
+	string comment;
+};
+
 struct PipelineStatusGlobalState : public GlobalTableFunctionState {
 	idx_t offset = 0;
-	unique_ptr<MaterializedQueryResult> result;
+	vector<PipelineStatusRow> rows;
 };
 
 static unique_ptr<FunctionData> PipelineStatusBind(ClientContext &context, TableFunctionBindInput &input,
@@ -39,25 +48,36 @@ static unique_ptr<GlobalTableFunctionState> PipelineStatusInit(ClientContext &co
 	auto &db = DatabaseInstance::GetDatabase(context);
 	auto &persistence = PipelinePersistence::Get();
 
-	// Query across all databases that have __pipeline__ schemas
 	auto databases = persistence.GetAllPipelineDatabases(db);
 	if (databases.empty()) {
 		persistence.EnsureInitialized(db);
 		databases.push_back("");
 	}
 
-	// Build UNION ALL query
-	string query;
-	for (idx_t i = 0; i < databases.size(); i++) {
-		if (i > 0) {
-			query += " UNION ALL ";
-		}
-		string table = PipelinePersistence::QualifyTable(databases[i] == "memory" ? "" : databases[i], "materialized_views");
-		query += "SELECT name, query, dependencies, is_materialized, comment FROM " + table;
-	}
+	for (auto &raw_db : databases) {
+		string database = (raw_db == "memory") ? "" : raw_db;
+		auto all_names = persistence.GetAllNames(db, database);
+		unordered_set<string> mv_set(all_names.begin(), all_names.end());
 
-	Connection conn(db);
-	state->result = conn.Query(query);
+		for (auto &name : all_names) {
+			auto def = persistence.GetView(db, database, name);
+			auto deps = DAGResolver::ResolveEffectiveDeps(def, mv_set);
+
+			string deps_str;
+			for (idx_t i = 0; i < deps.size(); i++) {
+				if (i > 0) deps_str += ",";
+				deps_str += deps[i];
+			}
+
+			PipelineStatusRow row;
+			row.name = def.name;
+			row.query = def.query;
+			row.dependencies = deps_str;
+			row.is_materialized = def.is_materialized;
+			row.comment = def.comment;
+			state->rows.push_back(std::move(row));
+		}
+	}
 
 	return std::move(state);
 }
@@ -65,17 +85,20 @@ static unique_ptr<GlobalTableFunctionState> PipelineStatusInit(ClientContext &co
 static void PipelineStatusFunc(ClientContext &context, TableFunctionInput &data_p, DataChunk &output) {
 	auto &state = data_p.global_state->Cast<PipelineStatusGlobalState>();
 
-	if (!state.result || state.result->HasError() || state.offset >= state.result->RowCount()) {
+	if (state.offset >= state.rows.size()) {
 		return;
 	}
 
 	idx_t count = 0;
 	idx_t max_count = STANDARD_VECTOR_SIZE;
 
-	while (state.offset < state.result->RowCount() && count < max_count) {
-		for (idx_t col = 0; col < 5; col++) {
-			output.SetValue(col, count, state.result->GetValue(col, state.offset));
-		}
+	while (state.offset < state.rows.size() && count < max_count) {
+		auto &row = state.rows[state.offset];
+		output.SetValue(0, count, Value(row.name));
+		output.SetValue(1, count, Value(row.query));
+		output.SetValue(2, count, Value(row.dependencies));
+		output.SetValue(3, count, Value::BOOLEAN(row.is_materialized));
+		output.SetValue(4, count, row.comment.empty() ? Value(LogicalType::VARCHAR) : Value(row.comment));
 		state.offset++;
 		count++;
 	}

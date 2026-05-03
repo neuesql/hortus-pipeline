@@ -1,6 +1,8 @@
 #include "scheduler/scheduler.hpp"
 #include "persistence/pipeline_persistence.hpp"
 #include "duckdb/main/connection.hpp"
+#include "executor/materializer.hpp"
+#include "executor/dag_resolver.hpp"
 
 namespace duckdb {
 
@@ -144,7 +146,10 @@ void PipelineScheduler::RunScheduler() {
 		// Execute refresh
 		try {
 			Connection conn(db);
-			conn.Query("REFRESH MATERIALIZED VIEW " + top.view_name);
+			auto order = DAGResolver::ResolveFor(db, top.name, top.database);
+			for (auto &dep_name : order) {
+				Materializer::Materialize(*conn.context, dep_name, "schedule");
+			}
 			persistence.UpdateScheduleLastRun(db, top.database, top.name);
 		} catch (...) {
 		}

@@ -1,0 +1,31 @@
+# name: test/sql/scheduler_trigger_value.test
+# group: [sql]
+
+require hortus_pipeline
+
+# Background scheduler should log trigger='schedule' for fired refreshes.
+
+statement ok
+CREATE OR REFRESH MATERIALIZED VIEW sched_trig_test SCHEDULE EVERY 2 SECOND AS SELECT 1 AS id;
+
+# Wait for the scheduler thread to fire at least once.
+sleep 4 seconds
+
+# At least one row in run_logs for this view must have trigger='schedule'.
+query I
+SELECT COUNT(*) >= 1 FROM pipeline_run_logs() WHERE view_name = 'sched_trig_test' AND trigger = 'schedule';
+----
+true
+
+# A separate manual REFRESH still logs trigger='manual'.
+statement ok
+REFRESH MATERIALIZED VIEW sched_trig_test;
+
+query I
+SELECT COUNT(*) >= 1 FROM pipeline_run_logs() WHERE view_name = 'sched_trig_test' AND trigger = 'manual';
+----
+true
+
+# Cleanup
+statement ok
+DROP MATERIALIZED VIEW sched_trig_test;

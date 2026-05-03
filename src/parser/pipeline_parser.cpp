@@ -3,6 +3,7 @@
 #include "duckdb/common/string_util.hpp"
 #include "duckdb/function/table_function.hpp"
 #include "duckdb/parser/statement/extension_statement.hpp"
+#include "duckdb/parser/parser.hpp"
 
 // Forward declarations for table functions defined in src/functions/
 namespace duckdb {
@@ -823,6 +824,67 @@ ParserOverrideResult PipelineParserExtension::PipelineParserOverride(ParserExten
 	}
 	StringUtil::Trim(trimmed);
 	string upper = StringUtil::Upper(trimmed);
+
+	// Strict sugar: SHOW pipeline_<name>()  ->  SELECT * FROM pipeline_<name>()
+	// Works both as a top-level statement and embedded inside a subquery:
+	//   SHOW pipeline_status()                               -> SELECT * FROM pipeline_status()
+	//   SELECT ... FROM (SHOW pipeline_status())             -> SELECT ... FROM (SELECT * FROM pipeline_status())
+	// Strictness is enforced by requiring the closing ')' to be followed only by
+	// whitespace, ';', ')' (end of enclosing subquery), or end-of-string.
+	// Any other trailing token (e.g. WHERE, LIMIT) is left to the native parser.
+	{
+		static const vector<pair<string, string>> show_targets = {
+		    {"SHOW PIPELINE_STATUS()", "SELECT * FROM pipeline_status()"},
+		    {"SHOW PIPELINE_EXPECTATIONS()", "SELECT * FROM pipeline_expectations()"},
+		    {"SHOW PIPELINE_SCHEDULES()", "SELECT * FROM pipeline_schedules()"},
+		    {"SHOW PIPELINE_RUN_LOGS()", "SELECT * FROM pipeline_run_logs()"},
+		    {"SHOW PIPELINE_EXPECTATION_LOGS()", "SELECT * FROM pipeline_expectation_logs()"},
+		};
+		// Build the upper-cased version of the original (pre-trimmed) query for scanning.
+		// We use the raw query here so positions align with the original for substitution.
+		string query_upper = StringUtil::Upper(query);
+		string rewritten = query;
+		bool any_substituted = false;
+		for (auto &entry : show_targets) {
+			const string &pattern_upper = entry.first;
+			const string &replacement = entry.second;
+			idx_t search_pos = 0;
+			while (true) {
+				auto pos = query_upper.find(pattern_upper, search_pos);
+				if (pos == string::npos) {
+					break;
+				}
+				// Check what follows the closing ')' of the matched pattern.
+				idx_t after = pos + pattern_upper.size();
+				// Skip trailing whitespace after the pattern.
+				while (after < query_upper.size() && std::isspace((unsigned char)query_upper[after])) {
+					after++;
+				}
+				// Accept only if followed by end-of-string, ';', or ')'.
+				bool valid_terminator = (after == query_upper.size()) || query_upper[after] == ';' ||
+				                        query_upper[after] == ')';
+				if (!valid_terminator) {
+					// Extra tokens after '()' — leave this occurrence to the native parser.
+					search_pos = pos + 1;
+					continue;
+				}
+				// Substitute in both the working copy and the upper-cased mirror.
+				rewritten.replace(pos, pattern_upper.size(), replacement);
+				query_upper.replace(pos, pattern_upper.size(), replacement);
+				any_substituted = true;
+				search_pos = pos + replacement.size();
+			}
+		}
+		if (any_substituted) {
+			try {
+				Parser parser;
+				parser.ParseQuery(rewritten);
+				return ParserOverrideResult(std::move(parser.statements));
+			} catch (std::exception &e) {
+				return ParserOverrideResult(e);
+			}
+		}
+	}
 
 	bool is_ours = StringUtil::StartsWith(upper, "DROP MATERIALIZED VIEW") ||
 	               StringUtil::StartsWith(upper, "ALTER MATERIALIZED VIEW") ||

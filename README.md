@@ -554,6 +554,16 @@ CALL pipeline_fires();
 
 ## 10. Monitoring Functions
 
+Each read-only inspection function below can be invoked in three equivalent forms:
+
+```sql
+SELECT * FROM pipeline_status();   -- standard form; supports WHERE / ORDER BY / etc.
+CALL pipeline_status();            -- procedural form
+SHOW pipeline_status();            -- strict sugar; no trailing clauses (use SELECT * FROM for filtering)
+```
+
+`SHOW` works for the five read-only functions: `pipeline_status`, `pipeline_expectations`, `pipeline_schedules`, `pipeline_run_logs`, `pipeline_expectation_logs`. It is **not** available for `pipeline_fires()` (which has side effects — it fires schedules).
+
 ### pipeline_status()
 
 Returns metadata for all materialized views.
@@ -639,7 +649,7 @@ CALL pipeline_run_logs();
 | `finished_at` | TIMESTAMP | Run end time |
 | `success` | BOOLEAN | True if succeeded |
 | `error_message` | VARCHAR | Error text on failure |
-| `trigger` | VARCHAR | manual, schedule, or refresh_all |
+| `trigger` | VARCHAR | What initiated the run: `manual` (user-typed `REFRESH MATERIALIZED VIEW` or initial CREATE), `schedule` (background scheduler thread or `pipeline_fires()`), `refresh_all` (`REFRESH ALL MATERIALIZED VIEWS`) |
 | `rows_affected` | BIGINT | Row count in result |
 
 ### pipeline_expectation_logs()

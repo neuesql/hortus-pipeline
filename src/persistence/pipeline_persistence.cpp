@@ -338,15 +338,15 @@ MaterializedViewDefinition PipelinePersistence::GetView(DatabaseInstance &db, co
 	}
 
 	// Load expectations
-	auto constraints_result =
+	auto expectations_result =
 	    conn.Query("SELECT expectation_name, expression, action FROM " + QualifyTable(database, "expectations") +
 	               " WHERE view_name = '" + EscapeSQL(name) + "'");
-	if (!constraints_result->HasError()) {
-		for (idx_t row = 0; row < constraints_result->RowCount(); row++) {
+	if (!expectations_result->HasError()) {
+		for (idx_t row = 0; row < expectations_result->RowCount(); row++) {
 			Expectation exp;
-			exp.name = constraints_result->GetValue(0, row).ToString();
-			exp.expression = constraints_result->GetValue(1, row).ToString();
-			string action_str = constraints_result->GetValue(2, row).ToString();
+			exp.name = expectations_result->GetValue(0, row).ToString();
+			exp.expression = expectations_result->GetValue(1, row).ToString();
+			string action_str = expectations_result->GetValue(2, row).ToString();
 			if (action_str == "DROP ROW") {
 				exp.action = ExpectationAction::DROP_ROW;
 			} else if (action_str == "FAIL UPDATE") {

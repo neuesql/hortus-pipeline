@@ -70,7 +70,7 @@ string ExpectationChecker::ApplyExpectations(ClientContext &context, const strin
 		out_metrics.push_back(metric);
 
 		if (failed_count > 0) {
-			throw InvalidInputException("Expectation '%s' failed: %lld rows violated constraint (%s)", exp.name,
+			throw InvalidInputException("Expectation '%s' failed: %lld rows violated expectation (%s)", exp.name,
 			                            static_cast<int64_t>(failed_count), exp.expression);
 		}
 	}
@@ -116,7 +116,7 @@ string ExpectationChecker::ApplyExpectations(ClientContext &context, const strin
 			failed_count = result->GetValue(0, 0).GetValue<int64_t>();
 			if (failed_count > 0) {
 				Printer::Print("WARNING: Expectation '" + exp.name + "': " + std::to_string(failed_count) +
-				               " rows violated constraint (" + exp.expression + ")");
+				               " rows violated expectation (" + exp.expression + ")");
 			}
 		}
 

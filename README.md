@@ -576,7 +576,7 @@ SELECT name, is_materialized, dependencies FROM pipeline_status();
 
 ### pipeline_expectations()
 
-Returns constraint metrics from the last materialization.
+Returns expectation metrics from the last materialization.
 
 ```sql
 CALL pipeline_expectations();
@@ -644,7 +644,7 @@ CALL pipeline_run_logs();
 
 ### pipeline_expectation_logs()
 
-Returns per-run constraint results.
+Returns per-run expectation results.
 
 ```sql
 CALL pipeline_expectation_logs();
@@ -711,7 +711,7 @@ The `__pipeline__` schema contains these system tables:
 | `__pipeline__.expectations` | Expectation definitions |
 | `__pipeline__.schedules` | Schedule configurations |
 | `__pipeline__.run_logs` | Run history (append-only) |
-| `__pipeline__.expectation_logs` | Per-run constraint results |
+| `__pipeline__.expectation_logs` | Per-run expectation results |
 
 All data is cascade-deleted when a view is dropped.
 

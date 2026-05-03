@@ -37,6 +37,23 @@ vector<string> DAGResolver::ExtractDependencies(const string &query) {
 	return deps;
 }
 
+vector<string> DAGResolver::ResolveEffectiveDeps(const MaterializedViewDefinition &def,
+                                                  const unordered_set<string> &mv_set) {
+	vector<string> raw;
+	if (!def.explicit_dependencies.empty()) {
+		raw = def.explicit_dependencies;
+	} else {
+		raw = ExtractDependencies(def.query);
+	}
+	vector<string> result;
+	for (auto &dep : raw) {
+		if (mv_set.count(dep) > 0 && dep != def.name) {
+			result.push_back(dep);
+		}
+	}
+	return result;
+}
+
 vector<string> DAGResolver::Resolve(DatabaseInstance &db, const string &database) {
 	auto &persistence = PipelinePersistence::Get();
 	auto all_names = persistence.GetAllNames(db, database);
@@ -51,18 +68,10 @@ vector<string> DAGResolver::Resolve(DatabaseInstance &db, const string &database
 
 	for (auto &name : all_names) {
 		auto def = persistence.GetView(db, database, name);
-		vector<string> deps;
-		if (!def.explicit_dependencies.empty()) {
-			deps = def.explicit_dependencies;
-		} else {
-			deps = ExtractDependencies(def.query);
-		}
-
+		auto deps = ResolveEffectiveDeps(def, mv_set);
 		for (auto &dep : deps) {
-			if (mv_set.count(dep) > 0 && dep != name) {
-				dependents[dep].push_back(name);
-				in_degree[name]++;
-			}
+			dependents[dep].push_back(name);
+			in_degree[name]++;
 		}
 	}
 
@@ -106,19 +115,7 @@ vector<string> DAGResolver::ResolveFor(DatabaseInstance &db, const string &targe
 	unordered_map<string, vector<string>> dep_map;
 	for (auto &name : all_names) {
 		auto def = persistence.GetView(db, database, name);
-		vector<string> deps;
-		if (!def.explicit_dependencies.empty()) {
-			deps = def.explicit_dependencies;
-		} else {
-			deps = ExtractDependencies(def.query);
-		}
-		vector<string> mv_deps;
-		for (auto &d : deps) {
-			if (mv_set.count(d) > 0 && d != name) {
-				mv_deps.push_back(d);
-			}
-		}
-		dep_map[name] = mv_deps;
+		dep_map[name] = ResolveEffectiveDeps(def, mv_set);
 	}
 
 	unordered_set<string> needed;

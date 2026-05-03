@@ -1,7 +1,6 @@
 #include "duckdb.hpp"
 #include "duckdb/function/table_function.hpp"
 #include "duckdb/main/client_context.hpp"
-#include "duckdb/main/connection.hpp"
 #include "duckdb/common/string_util.hpp"
 #include "persistence/pipeline_persistence.hpp"
 #include "executor/dag_resolver.hpp"
@@ -63,11 +62,7 @@ static unique_ptr<GlobalTableFunctionState> PipelineStatusInit(ClientContext &co
 			auto def = persistence.GetView(db, database, name);
 			auto deps = DAGResolver::ResolveEffectiveDeps(def, mv_set);
 
-			string deps_str;
-			for (idx_t i = 0; i < deps.size(); i++) {
-				if (i > 0) deps_str += ",";
-				deps_str += deps[i];
-			}
+			string deps_str = StringUtil::Join(deps, ",");
 
 			PipelineStatusRow row;
 			row.name = def.name;

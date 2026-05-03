@@ -286,18 +286,20 @@ CREATE OR REFRESH MATERIALIZED VIEW eu_orders AS
 CREATE OR REFRESH MATERIALIZED VIEW us_revenue AS
   SELECT SUM(amount) AS total FROM us_orders;
 
--- Check the detected dependencies
-SELECT name, dependencies FROM pipeline_status();
+-- Check the detected dependencies (use ORDER BY for stable output;
+-- pipeline_status() does not promise a specific row order).
+SELECT name, dependencies FROM pipeline_status() ORDER BY name;
 -- ┌────────────┬──────────────┐
 -- │    name    │ dependencies │
 -- ├────────────┼──────────────┤
+-- │ eu_orders  │ orders       │
 -- │ orders     │              │
 -- │ us_orders  │ orders       │
--- │ eu_orders  │ orders       │
 -- │ us_revenue │ us_orders    │
 -- └────────────┴──────────────┘
 
--- REFRESH ALL materializes in order: orders -> us_orders, eu_orders -> us_revenue
+-- REFRESH ALL materializes in dependency order regardless of the listing
+-- above: orders -> us_orders, eu_orders -> us_revenue.
 REFRESH ALL MATERIALIZED VIEWS;
 ```
 

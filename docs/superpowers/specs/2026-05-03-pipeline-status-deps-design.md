@@ -2,6 +2,7 @@
 
 **Date:** 2026-05-03
 **Scope:** `pipeline_status()` only. No changes to `EXPLAIN`, `pipeline_schedules`, or other monitoring surfaces.
+**Sequencing:** Assumes the rename in `2026-05-03-rename-system-tables-design.md` lands first. References to `__pipeline__.materialized_views` below were `__pipeline__.views` pre-rename; if the rename slips, substitute the old name in the implementation only.
 
 ## Problem
 
@@ -22,7 +23,7 @@ Refresh ordering already works correctly — `REFRESH ALL MATERIALIZED VIEWS` pr
 
 ## Root cause
 
-The `dependencies` column in `__pipeline__.views` is populated from the explicit `DEPENDS ON (...)` clause only. When deps are auto-detected, nothing is written to the column. `pipeline_status()` reads the column directly and displays it as-is.
+The `dependencies` column in `__pipeline__.materialized_views` is populated from the explicit `DEPENDS ON (...)` clause only. When deps are auto-detected, nothing is written to the column. `pipeline_status()` reads the column directly and displays it as-is.
 
 The DAG resolver already does the right thing: explicit deps take precedence, otherwise regex-extract from the query and filter to the MV set in the same database.
 
@@ -33,7 +34,7 @@ The DAG resolver already does the right thing: explicit deps take precedence, ot
 ## Non-goals
 
 - Storing auto-detected deps at create time (lazy mode chosen — staleness-proof, no schema migration).
-- Changing the semantics of the `__pipeline__.views.dependencies` column (still stores explicit deps only).
+- Changing the semantics of the `__pipeline__.materialized_views.dependencies` column (still stores explicit deps only).
 - Updating `pipeline_explain_mv`, `pipeline_schedules`, or any other monitoring surface.
 - Cross-database dependency resolution (preserves current intra-database-only behavior).
 
@@ -60,7 +61,7 @@ Behavior:
 
 ### pipeline_status() change
 
-Current init builds a single UNION ALL across all databases' `__pipeline__.views` tables. This loses the database-of-origin for each row, which we need because dependency resolution is intra-database.
+Current init builds a single UNION ALL across all databases' `__pipeline__.materialized_views` tables. This loses the database-of-origin for each row, which we need because dependency resolution is intra-database.
 
 Restructure init to iterate per-database:
 
@@ -93,7 +94,7 @@ The function-emit path (`PipelineStatusFunc`) reads from this in-memory `results
 
 ## What does not change
 
-- `__pipeline__.views.dependencies` column semantics — still stores explicit deps only.
+- `__pipeline__.materialized_views.dependencies` column semantics — still stores explicit deps only.
 - `PipelinePersistence::PersistView` — unchanged.
 - `DAGResolver::Resolve` ordering semantics — `REFRESH ALL` already produces correct results.
 - `pipeline_explain_mv`, `pipeline_schedules`, `pipeline_run_logs`, `pipeline_fires`, `pipeline_expectations`, `pipeline_expectation_logs` — unchanged.

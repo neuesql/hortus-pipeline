@@ -1,0 +1,81 @@
+# name: test/sql/pipeline_status_auto_deps.test
+# group: [sql]
+
+require hortus_pipeline
+
+# Setup: source table.
+statement ok
+CREATE TABLE raw_orders(amount DOUBLE, region VARCHAR);
+
+# 4-MV chain with auto-detected deps.
+statement ok
+CREATE OR REFRESH MATERIALIZED VIEW orders AS
+  SELECT * FROM raw_orders WHERE amount > 0 AND region IS NOT NULL;
+
+statement ok
+CREATE OR REFRESH MATERIALIZED VIEW us_orders AS
+  SELECT * FROM orders WHERE region = 'US';
+
+statement ok
+CREATE OR REFRESH MATERIALIZED VIEW eu_orders AS
+  SELECT * FROM orders WHERE region = 'EU';
+
+statement ok
+CREATE OR REFRESH MATERIALIZED VIEW us_revenue AS
+  SELECT SUM(amount) AS total FROM us_orders;
+
+# pipeline_status() must show MV-filtered deps for each view.
+query II
+SELECT name, dependencies FROM pipeline_status() ORDER BY name;
+----
+eu_orders	orders
+orders	(empty)
+us_orders	orders
+us_revenue	us_orders
+
+# Test: filter non-MV table refs — raw_orders is a regular table, must not appear.
+query I
+SELECT COUNT(*) FROM pipeline_status() WHERE dependencies LIKE '%raw_orders%';
+----
+0
+
+# Test: explicit DEPENDS ON takes precedence over auto-detect.
+statement ok
+CREATE OR REFRESH MATERIALIZED VIEW dep_explicit
+  DEPENDS ON (orders)
+AS SELECT * FROM us_orders;
+
+query I
+SELECT dependencies FROM pipeline_status() WHERE name = 'dep_explicit';
+----
+orders
+
+# Test: explicit DEPENDS ON listing a non-MV is filtered out.
+statement ok
+CREATE OR REFRESH MATERIALIZED VIEW dep_dangling
+  DEPENDS ON (not_a_view)
+AS SELECT 1 AS x;
+
+query I
+SELECT dependencies FROM pipeline_status() WHERE name = 'dep_dangling';
+----
+(empty)
+
+# Cleanup
+statement ok
+DROP MATERIALIZED VIEW dep_dangling;
+
+statement ok
+DROP MATERIALIZED VIEW dep_explicit;
+
+statement ok
+DROP MATERIALIZED VIEW us_revenue;
+
+statement ok
+DROP MATERIALIZED VIEW eu_orders;
+
+statement ok
+DROP MATERIALIZED VIEW us_orders;
+
+statement ok
+DROP MATERIALIZED VIEW orders;

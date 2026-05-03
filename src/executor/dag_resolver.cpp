@@ -38,7 +38,7 @@ vector<string> DAGResolver::ExtractDependencies(const string &query) {
 }
 
 vector<string> DAGResolver::ResolveEffectiveDeps(const MaterializedViewDefinition &def,
-                                                  const unordered_set<string> &mv_set) {
+                                                 const unordered_set<string> &mv_set) {
 	vector<string> raw;
 	if (!def.explicit_dependencies.empty()) {
 		raw = def.explicit_dependencies;

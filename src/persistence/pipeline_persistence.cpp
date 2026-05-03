@@ -145,7 +145,8 @@ void PipelinePersistence::PersistView(DatabaseInstance &db, const string &databa
 		           EscapeSQL(deps) + "', false)");
 	}
 
-	conn.Query("DELETE FROM " + QualifyTable(database, "expectations") + " WHERE view_name = '" + EscapeSQL(name) + "'");
+	conn.Query("DELETE FROM " + QualifyTable(database, "expectations") + " WHERE view_name = '" + EscapeSQL(name) +
+	           "'");
 	for (auto &exp : expectations) {
 		string action_str;
 		switch (exp.action) {
@@ -250,9 +251,11 @@ void PipelinePersistence::CascadeDelete(DatabaseInstance &db, const string &data
 	conn.Query("DELETE FROM " + QualifyTable(database, "expectation_logs") + " WHERE view_name = '" + EscapeSQL(name) +
 	           "'");
 	conn.Query("DELETE FROM " + QualifyTable(database, "run_logs") + " WHERE view_name = '" + EscapeSQL(name) + "'");
-	conn.Query("DELETE FROM " + QualifyTable(database, "expectations") + " WHERE view_name = '" + EscapeSQL(name) + "'");
+	conn.Query("DELETE FROM " + QualifyTable(database, "expectations") + " WHERE view_name = '" + EscapeSQL(name) +
+	           "'");
 	conn.Query("DELETE FROM " + QualifyTable(database, "schedules") + " WHERE view_name = '" + EscapeSQL(name) + "'");
-	conn.Query("DELETE FROM " + QualifyTable(database, "materialized_views") + " WHERE name = '" + EscapeSQL(name) + "'");
+	conn.Query("DELETE FROM " + QualifyTable(database, "materialized_views") + " WHERE name = '" + EscapeSQL(name) +
+	           "'");
 	conn.Query("COMMIT");
 }
 
@@ -298,8 +301,8 @@ void PipelinePersistence::InsertExpectationLog(DatabaseInstance &db, const strin
 bool PipelinePersistence::Exists(DatabaseInstance &db, const string &database, const string &name) {
 	EnsureInitialized(db, database);
 	Connection conn(db);
-	auto result = conn.Query("SELECT COUNT(*) FROM " + QualifyTable(database, "materialized_views") + " WHERE name = '" +
-	                         EscapeSQL(name) + "'");
+	auto result = conn.Query("SELECT COUNT(*) FROM " + QualifyTable(database, "materialized_views") +
+	                         " WHERE name = '" + EscapeSQL(name) + "'");
 	if (result->HasError() || result->RowCount() == 0) {
 		return false;
 	}

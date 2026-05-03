@@ -831,8 +831,8 @@ ParserOverrideResult PipelineParserExtension::PipelineParserOverride(ParserExten
 	// occurrences inside string literals, comments, or expression contexts.
 	if (StringUtil::StartsWith(upper, "SHOW PIPELINE_")) {
 		static const unordered_set<string> show_targets = {
-		    "PIPELINE_STATUS",       "PIPELINE_EXPECTATIONS",     "PIPELINE_SCHEDULES",
-		    "PIPELINE_RUN_LOGS",     "PIPELINE_EXPECTATION_LOGS",
+		    "PIPELINE_STATUS",   "PIPELINE_EXPECTATIONS",     "PIPELINE_SCHEDULES",
+		    "PIPELINE_RUN_LOGS", "PIPELINE_EXPECTATION_LOGS",
 		};
 		auto tokens = Tokenize(trimmed);
 		if (tokens.size() == 4 && StringUtil::Upper(tokens[0]) == "SHOW" &&

@@ -11,7 +11,7 @@ public:
 	static vector<string> ResolveFor(DatabaseInstance &db, const string &target, const string &database = "");
 	static vector<string> ExtractDependencies(const string &query);
 	static vector<string> ResolveEffectiveDeps(const MaterializedViewDefinition &def,
-	                                            const unordered_set<string> &mv_set);
+	                                           const unordered_set<string> &mv_set);
 };
 
 } // namespace duckdb

@@ -1,0 +1,71 @@
+# name: test/sql/show_monitoring.test
+# group: [sql]
+
+require hortus_pipeline
+
+# Setup: a tiny pipeline so the monitoring tables have something to show.
+statement ok
+CREATE OR REFRESH MATERIALIZED VIEW mv_show_test
+  CONSTRAINT positive_id EXPECT (id > 0)
+  SCHEDULE EVERY 1 HOUR
+AS SELECT 1 AS id;
+
+# 1. SHOW pipeline_status() returns the same row count as SELECT * FROM pipeline_status().
+query I
+SELECT (SELECT COUNT(*) FROM pipeline_status()) = (SELECT COUNT(*) FROM (SHOW pipeline_status()));
+----
+true
+
+# 2. Same for the other four whitelisted functions.
+query I
+SELECT (SELECT COUNT(*) FROM pipeline_expectations()) = (SELECT COUNT(*) FROM (SHOW pipeline_expectations()));
+----
+true
+
+query I
+SELECT (SELECT COUNT(*) FROM pipeline_schedules()) = (SELECT COUNT(*) FROM (SHOW pipeline_schedules()));
+----
+true
+
+query I
+SELECT (SELECT COUNT(*) FROM pipeline_run_logs()) = (SELECT COUNT(*) FROM (SHOW pipeline_run_logs()));
+----
+true
+
+query I
+SELECT (SELECT COUNT(*) FROM pipeline_expectation_logs()) = (SELECT COUNT(*) FROM (SHOW pipeline_expectation_logs()));
+----
+true
+
+# 3. Mixed case works.
+query I
+SELECT COUNT(*) > 0 FROM (Show Pipeline_Status());
+----
+true
+
+# 4. Trailing semicolon is handled by sqllogic; this verifies the parser tolerates whitespace.
+statement ok
+SHOW pipeline_status();
+
+# 5. Strictness: extra clause is rejected.
+statement error
+SHOW pipeline_status() WHERE name = 'mv_show_test';
+----
+
+# 6. Strictness: missing parens is rejected.
+statement error
+SHOW pipeline_status;
+----
+
+# 7. Non-whitelisted pipeline function is rejected.
+statement error
+SHOW pipeline_fires();
+----
+
+# 8. Native SHOW still works.
+statement ok
+SHOW TABLES;
+
+# Cleanup
+statement ok
+DROP MATERIALIZED VIEW mv_show_test;

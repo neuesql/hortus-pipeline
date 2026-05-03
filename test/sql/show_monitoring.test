@@ -22,46 +22,74 @@ statement ok
 SHOW pipeline_status();
 
 # 2. Same for the other four whitelisted functions.
+# 2a. Underlying function returns at least one row given the setup.
+query I
+SELECT COUNT(*) >= 1 FROM pipeline_expectations();
+----
+true
+
+# 2b. SHOW form parses and executes.
 statement ok
 SHOW pipeline_expectations();
 
+# 3a. Underlying function returns at least one row given the setup.
+query I
+SELECT COUNT(*) >= 1 FROM pipeline_schedules();
+----
+true
+
+# 3b. SHOW form parses and executes.
 statement ok
 SHOW pipeline_schedules();
 
+# 4a. Underlying function returns at least one row given the setup.
+query I
+SELECT COUNT(*) >= 1 FROM pipeline_run_logs();
+----
+true
+
+# 4b. SHOW form parses and executes.
 statement ok
 SHOW pipeline_run_logs();
 
+# 5a. Underlying function returns at least one row given the setup.
+query I
+SELECT COUNT(*) >= 1 FROM pipeline_expectation_logs();
+----
+true
+
+# 5b. SHOW form parses and executes.
 statement ok
 SHOW pipeline_expectation_logs();
 
-# 3. Mixed case works.
+# 6. Mixed case works.
 statement ok
 Show Pipeline_Status();
 
-# 4. Trailing semicolon is handled by sqllogic; this verifies the parser tolerates it.
+# 7. Trailing semicolon is handled by sqllogic; this verifies the parser tolerates it.
 statement ok
 SHOW pipeline_status();
 
-# 5. Strictness: extra clause is rejected (falls through to native parser).
+# 8. Strictness: extra clause is rejected (falls through to native parser).
 statement error
 SHOW pipeline_status() WHERE name = 'mv_show_test';
 ----
 
-# 6. Strictness: missing parens is rejected.
+# 9. Strictness: missing parens is rejected.
 statement error
 SHOW pipeline_status;
 ----
 
-# 7. Non-whitelisted pipeline function is rejected.
+# 10. Non-whitelisted pipeline function is rejected.
 statement error
 SHOW pipeline_fires();
 ----
 
-# 8. Native SHOW still works.
+# 11. Native SHOW still works.
 statement ok
 SHOW TABLES;
 
-# 9. SHOW inside a subquery / inside a string literal is NOT rewritten — strict top-level only.
+# 12. SHOW inside a subquery / inside a string literal is NOT rewritten — strict top-level only.
 #    String-literal containment must round-trip unchanged.
 query I
 SELECT COUNT(*) FROM (VALUES ('foo: SHOW pipeline_status();')) WHERE col0 = 'foo: SHOW pipeline_status();';

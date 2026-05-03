@@ -815,8 +815,9 @@ PipelineParserExtension::PipelinePlanFunction(ParserExtensionInfo *info, ClientC
 
 ParserOverrideResult PipelineParserExtension::PipelineParserOverride(ParserExtensionInfo *info, const string &query,
                                                                      ParserOptions &options) {
-	// Only intercept DROP MATERIALIZED VIEW and ALTER MATERIALIZED VIEW
-	// These are needed because DuckDB's native parser accepts them but fails at transform
+	// Intercept statements DuckDB's native parser would either reject or
+	// mis-transform: DROP/ALTER MATERIALIZED VIEW, EXPLAIN CREATE [OR REFRESH]
+	// MATERIALIZED VIEW, and the strict SHOW pipeline_<name>() sugar below.
 	string trimmed = query;
 	StringUtil::Trim(trimmed);
 	while (!trimmed.empty() && trimmed.back() == ';') {

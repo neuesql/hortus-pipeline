@@ -78,6 +78,8 @@ for each database with __pipeline__ schema (or "memory" if none):
 
 The function-emit path (`PipelineStatusFunc`) reads from this in-memory `results` vector instead of a `MaterializedQueryResult`. Output schema unchanged: `(name VARCHAR, query VARCHAR, dependencies VARCHAR, is_materialized BOOLEAN, comment VARCHAR)`.
 
+`comma-join` uses `,` with no spaces, matching the on-disk format already used for explicit deps (`pipeline_persistence.cpp:118-124`). Order of names within `dependencies` follows the order returned by the helper (regex match order for auto-detect, list order for explicit).
+
 ### Edge cases
 
 | Case | Behavior |

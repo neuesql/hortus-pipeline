@@ -37,9 +37,9 @@ SELECT (SELECT COUNT(*) FROM pipeline_expectation_logs()) = (SELECT COUNT(*) FRO
 ----
 true
 
-# 3. Mixed case works.
+# 3. Mixed case works (equivalence with the canonical form).
 query I
-SELECT COUNT(*) > 0 FROM (Show Pipeline_Status());
+SELECT (SELECT COUNT(*) FROM pipeline_status()) = (SELECT COUNT(*) FROM (Show Pipeline_Status()));
 ----
 true
 

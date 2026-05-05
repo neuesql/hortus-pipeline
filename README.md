@@ -2,7 +2,7 @@
 
 A DuckDB extension for declarative data pipelines. Define materialized views with data quality expectations, automatic dependency resolution, and scheduled refreshes -- all in SQL.
 
-Built for DuckDB v1.5.1.
+Built for DuckDB v1.5.1. DuckDB v1.5.2. All platforms.
 
 ## Table of Contents
 

@@ -41,6 +41,7 @@ Built for DuckDB v1.5.1. DuckDB v1.5.2. All platforms.
 ## Quick Start
 
 ```sh
+duckdb -unsigned
 -- Install from GitHub Pages repository
 INSTALL hortus_pipeline FROM 'https://neuesql.github.io/hortus-pipeline';
 ```
